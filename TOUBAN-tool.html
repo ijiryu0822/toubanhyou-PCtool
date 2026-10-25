@@ -1,0 +1,1557 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ミニバス【男子】保護者当番表 自動作成ツール</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- SheetJS (xlsx) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Phosphor Icons -->
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <!-- PDF Export Libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap');
+    body { font-family: 'Noto Sans JP', 'Inter', sans-serif; }
+    .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 4px; }
+    .badge-ake { background-color: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+    .badge-shime { background-color: #e0e7ff; color: #3730a3; border: 1px solid #c7d2fe; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+
+  <header class="bg-blue-900 text-white shadow-md sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="bg-amber-400 text-blue-950 p-2 rounded-xl shadow">
+          <i class="ph ph-basketball text-2xl"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-base md:text-lg font-bold tracking-tight">ミニバス【男子】保護者当番表作成システム</h1>
+            <span class="bg-amber-400 text-blue-950 font-black text-[10px] px-2 py-0.5 rounded-full">男子専用</span>
+          </div>
+          <p class="text-xs text-blue-100">基本会場: 白岳小学校 / 時間有無で自動判別 / 1枠最低1名・最大2名 / 全員最低1回保証</p>
+        </div>
+      </div>
+      
+      <nav class="flex items-center bg-blue-950/80 p-1 rounded-xl text-xs sm:text-sm font-medium overflow-x-auto max-w-full">
+        <button id="tab-btn-1" onclick="switchStep(1)" class="step-tab-btn px-3 py-1.5 rounded-lg bg-white text-blue-950 font-bold shadow whitespace-nowrap">1. Excelシート読込</button>
+        <button id="tab-btn-2" onclick="switchStep(2)" class="step-tab-btn px-3 py-1.5 rounded-lg text-blue-100 hover:text-white whitespace-nowrap">2. 明け・締め設定</button>
+        <button id="tab-btn-3" onclick="switchStep(3)" class="step-tab-btn px-3 py-1.5 rounded-lg text-blue-100 hover:text-white whitespace-nowrap">3. 名簿(学年/氏名/希望)</button>
+        <button id="tab-btn-4" onclick="switchStep(4)" class="step-tab-btn px-3 py-1.5 rounded-lg text-blue-100 hover:text-white whitespace-nowrap">4. 自動作成・Excel出力</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 py-6 w-full flex-1">
+    
+    <div id="toastMessage" class="hidden mb-4 p-4 rounded-xl shadow-lg border flex items-center justify-between transition-all duration-300">
+      <div class="flex items-center gap-2">
+        <i id="toastIcon" class="ph ph-info text-xl"></i>
+        <span id="toastText" class="text-sm font-medium"></span>
+      </div>
+      <button onclick="hideToast()" class="text-slate-500 hover:text-slate-700"><i class="ph ph-x"></i></button>
+    </div>
+
+    <section id="step-panel-1" class="step-panel space-y-6">
+      <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4 mb-4">
+          <div>
+            <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+              <span class="w-7 h-7 bg-blue-100 text-blue-700 rounded-full inline-flex items-center justify-center font-bold text-sm">1</span>
+              予定表Excelの読み込み ＆ 男子予定の自動抽出
+            </h2>
+            <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+              エクセル原本のA列(日)・B列(曜)を完全に反映し、練習時間・会場・対象学年を自動分離します。<br>
+              時間が入っていない文字だけの日は当番不要となります。
+            </p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button onclick="loadSampleData()" class="px-4 py-2.5 text-xs font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl transition flex items-center gap-1.5 border border-blue-200 shadow-sm">
+              <i class="ph ph-magic-wand text-base text-blue-600"></i> サンプル読込 (2026年10月)
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+          <div id="dropZone" class="md:col-span-2 border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-2xl p-6 text-center cursor-pointer bg-slate-50/50 hover:bg-blue-50/30 transition flex flex-col items-center justify-center relative min-h-[160px]">
+            <input type="file" id="excelFileInput" accept=".xlsx, .xls, .xlsm" class="absolute inset-0 opacity-0 cursor-pointer z-10 w-full h-full">
+            <div class="w-12 h-12 bg-blue-100 text-blue-700 rounded-2xl flex items-center justify-center mb-3">
+              <i class="ph ph-file-xls text-2xl"></i>
+            </div>
+            <p class="font-bold text-slate-700 text-sm">【作業用】2026年度当番表コピー.xlsx を選択またはドラッグ＆ドロップ</p>
+            <p class="text-xs text-slate-400 mt-1">「2026.10」「2026年10月」「10月」など各月シートを自動認識します</p>
+            <div id="loadedFileName" class="mt-3 text-xs font-medium text-blue-700 bg-blue-100/70 px-3 py-1 rounded-full hidden"></div>
+          </div>
+
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">対象月シートを選択</label>
+              <select id="sheetSelector" class="w-full text-xs rounded-lg border-slate-300 border p-2 bg-white" onchange="onSheetChange()">
+                <option value="">(Excelファイルを読み込んでください)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">対象年月度</label>
+              <div class="flex gap-2">
+                <input type="number" id="targetYear" class="w-24 text-xs rounded-lg border border-slate-300 p-2 text-center font-bold" value="2026">
+                <span class="self-center text-xs font-bold text-slate-500">年</span>
+                <input type="number" id="targetMonth" class="w-20 text-xs rounded-lg border border-slate-300 p-2 text-center font-bold" value="10" min="1" max="12">
+                <span class="self-center text-xs font-bold text-slate-500">月</span>
+              </div>
+            </div>
+            <button onclick="parseScheduleFromCurrentSheet()" class="w-full py-2 bg-blue-700 hover:bg-blue-800 text-white font-medium text-xs rounded-xl shadow transition flex items-center justify-center gap-1">
+              <i class="ph ph-arrow-counter-clockwise"></i> このシートから男子予定を再解析
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+          <div>
+            <h3 class="font-bold text-slate-800 flex items-center gap-2">
+              <i class="ph ph-calendar-check text-blue-600"></i> 男子予定一覧 (<span id="eventCountBadge">0</span> 日)
+            </h3>
+            <p class="text-xs text-slate-500">練習時間がある日は当番対象。文字のみ（イルカ杯、参観日など）は当番不要として表示されます。</p>
+          </div>
+          <button onclick="addNewCustomDate()" class="px-3 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg flex items-center gap-1">
+            <i class="ph ph-plus"></i> 日程を手動追加
+          </button>
+        </div>
+
+        <div class="overflow-x-auto scrollbar-thin">
+          <table class="w-full text-left text-xs text-slate-600 border-collapse min-w-[950px]">
+            <thead>
+              <tr class="bg-slate-100 text-slate-700 border-b">
+                <th class="p-2.5 rounded-l-lg w-20">日付 / 曜日</th>
+                <th class="p-2.5 w-32">練習時間</th>
+                <th class="p-2.5 w-80">対象学年（チェック選択）</th>
+                <th class="p-2.5 w-36">練習会場</th>
+                <th class="p-2.5">予定・備考</th>
+                <th class="p-2.5 w-24 text-center">当番対象</th>
+                <th class="p-2.5 text-right rounded-r-lg w-14">削除</th>
+              </tr>
+            </thead>
+            <tbody id="scheduleTableBody" class="divide-y divide-slate-100 font-medium">
+              <tr><td colspan="7" class="p-6 text-center text-slate-400">予定がありません。「サンプル読込」を押すか、Excelファイルを読み込んでください。</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="mt-6 flex justify-end">
+          <button onclick="switchStep(2)" class="px-6 py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl font-bold text-sm shadow-md transition flex items-center gap-2">
+            次へ: 明け・締め当番の枠数設定 <i class="ph ph-arrow-right"></i>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section id="step-panel-2" class="step-panel hidden space-y-6">
+      <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+        <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-3 mb-4">
+          <span class="w-7 h-7 bg-blue-100 text-blue-700 rounded-full inline-flex items-center justify-center font-bold text-sm">2</span>
+          明け当番・締め当番の枠数設定
+        </h2>
+        <p class="text-xs text-slate-500 mb-6">「明け当番だけ必要」「締め当番だけ必要」「当番そのものが不要（遠征・試合・文字だけの日）」を日ごとに自由に設定できます。</p>
+
+        <div class="p-4 rounded-xl border border-blue-200 bg-blue-50/50 mb-6">
+          <h3 class="text-xs font-bold text-blue-900 mb-2 flex items-center gap-1.5"><i class="ph ph-lightning"></i> 曜日別の基本ルール一括適用 <span class="font-normal text-blue-700">（1回の当番は最低1名・最大2名）</span></h3>
+          <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
+            <!-- 月曜日 -->
+            <div class="bg-white p-2 rounded-lg border border-slate-200 text-[10px]">
+              <span class="font-bold text-slate-700 block mb-1">月曜日</span>
+              <div class="flex items-center justify-between mb-1">
+                <span>明け:</span><select id="quick-mon-ake" class="p-0.5 border rounded text-center font-bold"><option value="0">0</option><option value="1" selected>1名</option><option value="2">2名</option></select>
+              </div>
+              <div class="flex items-center justify-between">
+                <span>締め:</span><select id="quick-mon-shime" class="p-0.5 border rounded text-center font-bold text-rose-600"><option value="0" selected>0</option><option value="1">1名</option><option value="2">2名</option></select>
+              </div>
+            </div>
+            <!-- 火曜日 -->
+            <div class="bg-white p-2 rounded-lg border border-slate-200 text-[10px]">
+              <span class="font-bold text-slate-700 block mb-1">火曜日</span>
+              <div class="flex items-center justify-between mb-1">
+                <span>明け:</span><select id="quick-tue-ake" class="p-0.5 border rounded text-center font-bold"><option value="0">0</option><option value="1" selected>1名</option><option value="2">2名</option></select>
+              </div>
+              <div class="flex items-center justify-between">
+                <span>締め:</span><select id="quick-tue-shime" class="p-0.5 border rounded text-center font-bold"><option value="0">0</option><option value="1" selected>1名</option><option value="2">2名</option></select>
+              </div>
+            </div>
+            <!-- 水曜日 -->
+            <div class="bg-white p-2 rounded-lg border border-slate-200 text-[10px]">
+              <span class="font-bold text-slate-700 block mb-1">水曜日</span>
+              <div class="flex items-center justify-between mb-1">
+                <span>明け:</span><select id="quick-wed-ake" class="p-0.5 border rounded text-center font-bold"><option value="0">0</option><option value="1" selected>1名</option><option value="2">2名</option></select>
+              </div>
+              <div class="flex items-center justify-between">
+                <span>締め:</span><select id="quick-wed-shime" class="p-0.5 border rounded text-center font-bold"><option value="0">0</option><option value="1" selected>1名</option><option value="2">2名</option></select>
+              </div>
+            </div>
+            <!-- 木曜日 -->
+            <div class="bg-white p-2 rounded-lg border border-slate-200 text-[10px]">
+              <span class="font-bold text-slate-700 block mb-1">木曜日</span>
+              <div class="flex items-center justify-between mb-1">
+                <span>明け:</span><select id="quick-thu-ake" class="p-0.5 border rounded text-center font-bold"><option value="0">0</option><option value="1" selected>1名</option><option value="2">2名</option></select>
+              </div>
+              <div class="flex items-center justify-between">
+                <span>締め:</span><select id="quick-thu-shime" class="p-0.5 border rounded text-center font-bold"><option value="0">0</option><option value="1" selected>1名</option><option value="2">2名</option></select>
+              </div>
+            </div>
+            <!-- 金曜日 -->
+            <div class="bg-white p-2 rounded-lg border border-slate-200 text-[10px]">
+              <span class="font-bold text-slate-700 block mb-1">金曜日</span>
+              <div class="flex items-center justify-between mb-1">
+                <span>明け:</span><select id="quick-fri-ake" class="p-0.5 border rounded text-center font-bold"><option value="0">0</option><option value="1" selected>1名</option><option value="2">2名</option></select>
+              </div>
+              <div class="flex items-center justify-between">
+                <span>締め:</span><select id="quick-fri-shime" class="p-0.5 border rounded text-center font-bold"><option value="0">0</option><option value="1" selected>1名</option><option value="2">2名</option></select>
+              </div>
+            </div>
+            <!-- 土曜日 -->
+            <div class="bg-white p-2 rounded-lg border border-blue-100 text-[10px]">
+              <span class="font-bold text-blue-700 block mb-1">土曜日</span>
+              <div class="flex items-center justify-between mb-1">
+                <span>明け:</span><select id="quick-sat-ake" class="p-0.5 border rounded text-center font-bold"><option value="0">0</option><option value="1" selected>1名</option><option value="2">2名</option></select>
+              </div>
+              <div class="flex items-center justify-between">
+                <span>締め:</span><select id="quick-sat-shime" class="p-0.5 border rounded text-center font-bold text-rose-600"><option value="0" selected>0</option><option value="1">1名</option><option value="2">2名</option></select>
+              </div>
+            </div>
+            <!-- 日曜日 -->
+            <div class="bg-white p-2 rounded-lg border border-rose-100 text-[10px]">
+              <span class="font-bold text-rose-700 block mb-1">日曜日・祝日</span>
+              <div class="flex items-center justify-between mb-1">
+                <span>明け:</span><select id="quick-sun-ake" class="p-0.5 border rounded text-center font-bold"><option value="0">0</option><option value="1" selected>1名</option><option value="2">2名</option></select>
+              </div>
+              <div class="flex items-center justify-between">
+                <span>締め:</span><select id="quick-sun-shime" class="p-0.5 border rounded text-center font-bold"><option value="0">0</option><option value="1" selected>1名</option><option value="2">2名</option></select>
+              </div>
+            </div>
+          </div>
+          <button onclick="applyBatchSlotRules()" class="w-full mt-3 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-semibold shadow-sm transition">練習日すべてに反映</button>
+        </div>
+
+        <div>
+          <h3 class="text-sm font-bold text-slate-700 mb-2 flex items-center gap-1.5"><i class="ph ph-sliders"></i> 日程ごとの明け・締め当番 個別設定</h3>
+          <p class="text-xs text-slate-500 mb-3">各日ごとに「明けのみ」「締めのみ」「当番不要」「人数（1人または2人）」を細かく変更できます。</p>
+          <div id="dateSlotSettingsContainer" class="space-y-2 max-h-[500px] overflow-y-auto scrollbar-thin pr-1 pb-4"></div>
+        </div>
+
+        <div class="mt-6 flex justify-between">
+          <button onclick="switchStep(1)" class="px-5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-bold text-xs transition"><i class="ph ph-arrow-left"></i> 戻る</button>
+          <button onclick="switchStep(3)" class="px-6 py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl font-bold text-sm shadow-md transition flex items-center gap-2">次へ: 保護者名簿・希望日 <i class="ph ph-arrow-right"></i></button>
+        </div>
+      </div>
+    </section>
+
+    <section id="step-panel-3" class="step-panel hidden space-y-6">
+      <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4 mb-4">
+          <div>
+            <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+              <span class="w-7 h-7 bg-blue-100 text-blue-700 rounded-full inline-flex items-center justify-center font-bold text-sm">3</span>
+              保護者名簿の登録（希望日・NG日）
+            </h2>
+            <p class="text-xs text-slate-500 mt-1">「土曜日閉め」「金曜」「水、金」などフリーフォーマットでもAIが自動判別します。<br>ファイルを取り込むとリストは全て新しくリセット（上書き）されます。</p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <label class="px-3 py-1.5 text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-semibold rounded-lg flex items-center gap-1 border border-emerald-300 cursor-pointer shadow-sm">
+              <i class="ph ph-file-xls text-base"></i> 名簿Excel取込 (リセット)
+              <input type="file" id="memberExcelFileInput" accept=".xlsx, .xls" class="hidden" onchange="importMembersFromExcel(event)">
+            </label>
+            <button onclick="openRosterTextModal()" class="px-3 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg flex items-center gap-1 shadow-sm">
+              <i class="ph ph-clipboard-text text-base"></i> テキスト貼付 (リセット)
+            </button>
+            <button onclick="clearAllMembers()" class="px-3 py-1.5 text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold rounded-lg flex items-center gap-1 border border-rose-200">
+              <i class="ph ph-trash"></i> 全削除
+            </button>
+            <button onclick="addNewMember()" class="px-3 py-1.5 text-xs bg-blue-700 hover:bg-blue-800 text-white font-semibold rounded-lg flex items-center gap-1 shadow-sm">
+              <i class="ph ph-user-plus"></i> 手入力追加
+            </button>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto scrollbar-thin">
+          <table class="w-full text-left text-xs text-slate-600 border-collapse min-w-[1050px]">
+            <thead>
+              <tr class="bg-slate-100 text-slate-700 border-b">
+                <th class="p-2.5 rounded-l-lg w-20">学年</th>
+                <th class="p-2.5 w-32">保護者氏名 (当番に反映)</th>
+                <th class="p-2.5 text-center w-28">担当回数<br><span class="text-[10px] text-blue-600 font-normal">最低1回〜最大3回</span></th>
+                <th class="p-2.5 w-36">入りたい日 (希望日)</th>
+                <th class="p-2.5 w-36">入りたくない日 (NG日)</th>
+                <th class="p-2.5 w-48">個別制約 (同日セット・曜日指定)</th>
+                <th class="p-2.5 w-28 text-blue-800 font-bold">兄弟リンク (同日に自動配置)</th>
+                <th class="p-2.5 text-right rounded-r-lg w-10">削除</th>
+              </tr>
+            </thead>
+            <tbody id="memberTableBody" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+
+        <div class="mt-6 flex justify-between">
+          <button onclick="switchStep(2)" class="px-5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-bold text-xs transition"><i class="ph ph-arrow-left"></i> 戻る</button>
+          <button onclick="switchStep(4)" class="px-6 py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl font-bold text-sm shadow-md transition flex items-center gap-2">次へ: 自動作成 &amp; 出力 <i class="ph ph-arrow-right"></i></button>
+        </div>
+      </div>
+    </section>
+
+    <section id="step-panel-4" class="step-panel hidden space-y-6">
+      
+      <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <span class="w-7 h-7 bg-blue-100 text-blue-700 rounded-full inline-flex items-center justify-center font-bold text-sm">4</span>
+            男子当番表 自動作成 ＆ 出力
+          </h2>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button onclick="runAutoAssignment()" class="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-sm rounded-xl shadow transition flex items-center gap-2">
+            <i class="ph ph-sparkle text-lg"></i> 当番表を自動作成
+          </button>
+          <button onclick="clearAllAssignments()" class="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition">リセット</button>
+          <button onclick="exportToExcel()" class="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow transition flex items-center gap-1.5">
+            <i class="ph ph-microsoft-excel-logo text-base"></i> Excel出力
+          </button>
+          <button onclick="exportToPDF()" class="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center gap-1.5">
+            <i class="ph ph-file-pdf text-base"></i> PDF出力
+          </button>
+          <button onclick="window.print()" class="px-3 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-xl transition flex items-center gap-1">
+            <i class="ph ph-printer"></i> 印刷
+          </button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200">
+          <span class="text-xs text-slate-500 font-medium">当月スロット総数</span>
+          <p id="stat-total-slots" class="text-xl font-bold text-slate-800 mt-0.5">0 枠</p>
+        </div>
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200">
+          <span class="text-xs text-slate-500 font-medium">割当済スロット</span>
+          <p id="stat-assigned-slots" class="text-xl font-bold text-blue-600 mt-0.5">0 / 0 枠</p>
+        </div>
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200">
+          <span class="text-xs text-slate-500 font-medium">登録保護者数</span>
+          <p id="stat-member-count" class="text-xl font-bold text-slate-800 mt-0.5">0 名</p>
+        </div>
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200">
+          <span class="text-xs text-slate-500 font-medium">全員最低1回チェック</span>
+          <p id="stat-min-duty-check" class="text-sm font-bold text-emerald-600 mt-1">集計中</p>
+        </div>
+      </div>
+
+      <div class="bg-white p-4 rounded-xl border border-slate-200">
+        <h3 class="text-xs font-bold text-slate-600 mb-2 flex items-center gap-1.5"><i class="ph ph-chart-bar"></i> 保護者ごとの当番担当回数（基本1回・最大3回チェック）</h3>
+        <div id="memberQuotaList" class="flex flex-wrap gap-2 text-xs"></div>
+      </div>
+
+      <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-bold text-slate-800 flex items-center gap-2"><i class="ph ph-table text-blue-600"></i> 男子当番割当結果（名前をクリックで交代可能）</h3>
+          <span class="text-[10px] text-slate-400 hidden sm:inline">※自動割当が1枠設定でも、常に2枠表示されます（空き枠から手動追加可能）</span>
+        </div>
+        <div class="overflow-x-auto scrollbar-thin">
+          <table id="rosterTable" class="w-full text-left text-xs border-collapse min-w-[850px] bg-white">
+            <thead>
+              <tr class="bg-slate-100 text-slate-700 border-b">
+                <th class="p-3 w-24">日付 / 曜日</th>
+                <th class="p-3 w-28">練習時間</th>
+                <th class="p-3 w-32">対象学年</th>
+                <th class="p-3 w-32">練習会場</th>
+                <th class="p-3 bg-amber-50/70 border-l border-amber-200 text-amber-900"><span class="flex items-center gap-1"><i class="ph ph-sun-horizon"></i> 明けの当番</span></th>
+                <th class="p-3 bg-indigo-50/70 border-l border-indigo-200 text-indigo-900"><span class="flex items-center gap-1"><i class="ph ph-moon"></i> 締めの当番</span></th>
+                <th class="p-3 border-l border-slate-200">予定・備考</th>
+              </tr>
+            </thead>
+            <tbody id="rosterTableBody" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="textImportModal" class="hidden fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold text-slate-800 flex items-center gap-2 text-sm"><i class="ph ph-clipboard-text text-blue-600"></i> 名簿テキスト一括貼り付け（上書きリセット）</h3>
+        <button onclick="closeRosterTextModal()" class="text-slate-400 hover:text-slate-600"><i class="ph ph-x text-lg"></i></button>
+      </div>
+      <p class="text-xs text-slate-500 mb-3">形式例: <code>学年, 氏名, 目標回数, 希望日, NG日</code><br>※既存の名簿は削除され、このリストに完全に置き換わります。</p>
+      <textarea id="rosterBulkInput" rows="7" class="w-full text-xs font-mono p-3 border rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 mb-4" placeholder="6年, 小川, 1, 10/2;10/3, 10/10&#10;5年, 川本, 1, 10/2開け;10/24締め, "></textarea>
+      <div class="flex justify-end gap-2">
+        <button onclick="closeRosterTextModal()" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">キャンセル</button>
+        <button onclick="applyRosterBulkText()" class="px-4 py-2 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg shadow">リセットして反映</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="slotEditModal" class="hidden fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold text-slate-800 flex items-center gap-1.5 text-sm"><i class="ph ph-user-switch text-blue-600"></i> 当番の手動変更・指定</h3>
+        <button onclick="closeSlotModal()" class="text-slate-400 hover:text-slate-600"><i class="ph ph-x"></i></button>
+      </div>
+      <div id="slotEditDetails" class="text-xs text-slate-500 mb-4 p-2.5 bg-slate-50 rounded-xl"></div>
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">割り当てる保護者（名前）</label>
+          <select id="slotMemberSelect" class="w-full text-xs p-2.5 border rounded-xl bg-white"></select>
+        </div>
+      </div>
+      <div class="flex justify-between items-center mt-6">
+        <button onclick="removeCurrentSlotAssignment()" class="px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50 rounded-lg font-medium">割当解除 (空にする)</button>
+        <div class="flex gap-2">
+          <button onclick="closeSlotModal()" class="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg">閉じる</button>
+          <button onclick="saveSlotAssignment()" class="px-4 py-1.5 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 rounded-lg shadow">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'minibus_boys_roster_app_state';
+    
+    let appState = {
+      rawWorkbook: null, currentStep: 1, targetYear: 2026, targetMonth: 10,
+      schedules: [], members: [], roster: {}, editingSlot: null
+    };
+
+    function showToast(message, type = 'info') {
+      const toast = document.getElementById('toastMessage');
+      const text = document.getElementById('toastText');
+      const icon = document.getElementById('toastIcon');
+      if (!toast || !text || !icon) return;
+      text.innerText = message;
+      toast.className = 'mb-4 p-4 rounded-xl shadow-lg border flex items-center justify-between transition-all duration-300 ';
+      if (type === 'error') { toast.className += 'bg-rose-50 text-rose-800 border-rose-200'; icon.className = 'ph ph-warning-circle text-xl text-rose-600'; }
+      else if (type === 'success') { toast.className += 'bg-emerald-50 text-emerald-800 border-emerald-200'; icon.className = 'ph ph-check-circle text-xl text-emerald-600'; }
+      else { toast.className += 'bg-blue-50 text-blue-800 border-blue-200'; icon.className = 'ph ph-info text-xl text-blue-600'; }
+      toast.classList.remove('hidden');
+      setTimeout(() => hideToast(), 4000);
+    }
+    function hideToast() { const toast = document.getElementById('toastMessage'); if (toast) toast.classList.add('hidden'); }
+
+    function switchStep(stepNum) {
+      appState.currentStep = stepNum;
+      for (let i = 1; i <= 4; i++) {
+        const panel = document.getElementById(`step-panel-${i}`);
+        const btn = document.getElementById(`tab-btn-${i}`);
+        if (!panel || !btn) continue;
+        if (i === stepNum) {
+          panel.classList.remove('hidden');
+          btn.className = 'step-tab-btn px-3 py-1.5 rounded-lg bg-white text-blue-950 font-bold shadow whitespace-nowrap';
+        } else {
+          panel.classList.add('hidden');
+          btn.className = 'step-tab-btn px-3 py-1.5 rounded-lg text-blue-100 hover:text-white whitespace-nowrap';
+        }
+      }
+      if (stepNum === 2) renderDateSlotSettings();
+      else if (stepNum === 3) renderMemberTable();
+      else if (stepNum === 4) { updateStats(); renderRosterTable(); }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      loadFromLocalStorage();
+      document.getElementById('targetYear').value = appState.targetYear;
+      document.getElementById('targetMonth').value = appState.targetMonth;
+      setupDragAndDrop();
+      if (appState.schedules.length > 0) renderScheduleTable();
+      if (appState.members.length > 0) renderMemberTable();
+    });
+
+    function setupDragAndDrop() {
+      const dropZone = document.getElementById('dropZone');
+      const fileInput = document.getElementById('excelFileInput');
+      if (!dropZone || !fileInput) return;
+      fileInput.addEventListener('change', (e) => { if (e.target.files && e.target.files.length > 0) processExcelFile(e.target.files[0]); });
+      ['dragenter', 'dragover'].forEach(eventName => dropZone.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); dropZone.classList.add('border-blue-600', 'bg-blue-50'); }, false));
+      ['dragleave', 'drop'].forEach(eventName => dropZone.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); dropZone.classList.remove('border-blue-600', 'bg-blue-50'); }, false));
+      dropZone.addEventListener('drop', (e) => { const dt = e.dataTransfer; if (dt && dt.files && dt.files.length > 0) processExcelFile(dt.files[0]); }, false);
+    }
+
+    function processExcelFile(file) {
+      if (!file) return;
+      showToast(`「${file.name}」を読み込んでいます...`, 'info');
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array', cellDates: true, cellNF: false, cellText: true });
+          if (!workbook || !workbook.SheetNames || workbook.SheetNames.length === 0) throw new Error('シートが存在しません');
+          appState.rawWorkbook = workbook;
+          document.getElementById('loadedFileName').innerText = `読み込み完了: ${file.name}`;
+          document.getElementById('loadedFileName').classList.remove('hidden');
+
+          const selector = document.getElementById('sheetSelector');
+          selector.innerHTML = '';
+          let defaultSheet = '';
+          workbook.SheetNames.forEach((sheetName) => {
+            if (sheetName.includes('原紙')) return;
+            const opt = document.createElement('option');
+            opt.value = sheetName; opt.text = sheetName; selector.appendChild(opt);
+            if (!defaultSheet) defaultSheet = sheetName;
+            if (/(2026\.10|26\.10|10月|10\b)/.test(sheetName)) defaultSheet = sheetName;
+          });
+          if (!defaultSheet) defaultSheet = workbook.SheetNames[0];
+          selector.value = defaultSheet;
+          updateTargetYearMonthFromSheet(defaultSheet);
+          parseScheduleFromCurrentSheet();
+        } catch (err) { showToast(`Excel読込エラー: ${err.message}`, 'error'); }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function updateTargetYearMonthFromSheet(sheetName) {
+      if (!sheetName) return;
+      let match = sheetName.match(/(\d{4})[.\-\/年](\d{1,2})/);
+      if (match) { appState.targetYear = parseInt(match[1], 10); appState.targetMonth = parseInt(match[2], 10); }
+      else {
+        match = sheetName.match(/(\d{1,2})\s*月?/);
+        if (match) { const m = parseInt(match[1], 10); if (m >= 1 && m <= 12) appState.targetMonth = m; }
+      }
+      document.getElementById('targetYear').value = appState.targetYear;
+      document.getElementById('targetMonth').value = appState.targetMonth;
+      saveToLocalStorage();
+    }
+    
+    function onSheetChange() { 
+      updateTargetYearMonthFromSheet(document.getElementById('sheetSelector').value); 
+      parseScheduleFromCurrentSheet(); 
+    }
+
+    function parseTimeInfo(cellValue) {
+      if (!cellValue) return '';
+      const match = String(cellValue).trim().match(/(\d{1,2}[:：]\d{2}\s*[-〜~～]\s*\d{1,2}[:：]\d{2}|\d{1,2}時(?:\d{1,2}分)?\s*[-〜~～]\s*\d{1,2}時(?:\d{1,2}分)?)/);
+      return match ? match[1].replace(/\s+/g, '') : '';
+    }
+
+    function detectGymPlace(text) {
+      const val = String(text).trim();
+      if (val.includes('オーク') || val.includes('ｵｰｸ')) return 'オークアリーナ';
+      if (val.includes('広南中') || val.includes('広南')) return '広南中学校';
+      if (val.includes('白岳小') || val.includes('白岳')) return '白岳小学校';
+      return '';
+    }
+
+    function parseGradeSelection(text) {
+      if (!text) return { isAll: true, grades: ['all'] };
+      const str = String(text).trim();
+      // 4〜6年指定を完全一致で抜く
+      if (str.includes('4〜6年生のみ') || str.includes('4～6年生のみ') || str.includes('4〜6年') || str.includes('4～6年') || str.includes('高学年')) {
+          return { isAll: false, grades: ['4', '5', '6'] };
+      }
+      if (str.includes('1〜3年生のみ') || str.includes('1～3年生のみ') || str.includes('1〜3年') || str.includes('1～3年') || str.includes('低学年')) {
+          return { isAll: false, grades: ['1', '2', '3'] };
+      }
+      // 単独学年
+      if (str.match(/[1-6１-６]\s*年(?:生)?のみ/)) {
+        const m = str.match(/([1-6１-６])\s*年/);
+        if (m) return { isAll: false, grades: [m[1]] };
+      }
+      // 学年指定なしは全学年
+      return { isAll: true, grades: ['all'] };
+    }
+
+    function formatGradeLabel(targetObj) {
+      if (!targetObj || targetObj.isAll || !targetObj.grades.length || targetObj.grades.includes('all')) return '全学年';
+      const sorted = [...targetObj.grades].sort((a, b) => Number(b) - Number(a));
+      return sorted.map(g => `${g}年`).join('・') + 'のみ';
+    }
+
+    function parseScheduleFromCurrentSheet() {
+      if (!appState.rawWorkbook) return showToast('Excelファイルを選択してください', 'error');
+      const sheetName = document.getElementById('sheetSelector').value;
+      const worksheet = appState.rawWorkbook.Sheets[sheetName];
+      if (!worksheet) return showToast(`シート「${sheetName}」が見つかりません`, 'error');
+
+      const year = parseInt(document.getElementById('targetYear').value, 10) || 2026;
+      const month = parseInt(document.getElementById('targetMonth').value, 10) || 10;
+      appState.targetYear = year; appState.targetMonth = month;
+
+      const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+      const extractedSchedules = [];
+
+      for (let r = 0; r < rawRows.length; r++) {
+        const row = rawRows[r];
+        if (!row || row.length === 0 || row.every(c => !String(c).trim())) continue;
+
+        let dayVal = null, dowVal = '';
+        
+        const cellDay = String(row[0] || '').trim();
+        const mDay = cellDay.match(/^(\d{1,2})\s*(日)?$/);
+        if (mDay) dayVal = parseInt(mDay[1], 10);
+        
+        const cellDow = String(row[1] || '').trim();
+        const mDow = cellDow.match(/^(月|火|水|木|金|土|日)/);
+        if (mDow) dowVal = mDow[1];
+        
+        if (dayVal === null || !dowVal) continue; 
+
+        let boysContent = String(row[2] || '').trim();
+        let foundTime = parseTimeInfo(boysContent);
+        const isPracticeDay = !!foundTime;
+        
+        const gymPlace = detectGymPlace(boysContent) || (isPracticeDay ? '白岳小学校' : '');
+        const gradeSelection = parseGradeSelection(boysContent);
+
+        let cleanNote = boysContent;
+        if (foundTime) cleanNote = cleanNote.replace(foundTime, '');
+        cleanNote = cleanNote.replace(/[（\(][^\)）]*(オーク[A-ZＡ-Ｚ]?|ｵｰｸ[A-ZＡ-Ｚ]?|オークサブ|ｵｰｸｻﾌﾞ|オークアリーナ|白岳|広南)[^\)）]*[）\)]/gi, '')
+                             .replace(/[（\(][^\)）]*[1-6１-６]\s*[-〜~～・]?\s*[1-6１-６]?\s*年(?:生)?(?:のみ)?[^\)）]*[）\)]/g, '')
+                             .replace(/オーク[A-ZＡ-Ｚ]?|ｵｰｸ[A-ZＡ-Ｚ]?|オークサブ|ｵｰｸｻﾌﾞ|オークアリーナ|白岳小学校|白岳|広南中学校|広南/gi, '')
+                             .replace(/[1-6１-６]\s*[-〜~～・]?\s*[1-6１-６]?\s*年(?:生)?(?:のみ)?/g, '')
+                             .replace(/[（\(\)）]/g, '').trim();
+
+        if (!cleanNote && isPracticeDay) cleanNote = '男子通常練習';
+        if (!isPracticeDay && !cleanNote) cleanNote = 'お休み';
+
+        const defaultAke = isPracticeDay ? 1 : 0;
+        const defaultShime = isPracticeDay ? 1 : 0;
+
+        extractedSchedules.push({
+          id: `date-${year}-${month}-${dayVal}`, day: dayVal, month: month, year: year,
+          dateString: `${month}/${dayVal}(${dowVal})`, dayOfWeek: dowVal, time: foundTime,
+          targetGrades: gradeSelection, place: gymPlace, note: cleanNote, isPractice: isPracticeDay,
+          needAke: defaultAke > 0, akeCount: defaultAke, needShime: defaultShime > 0, shimeCount: defaultShime
+        });
+      }
+
+      const uniqueMap = new Map();
+      extractedSchedules.forEach(item => { if (!uniqueMap.has(item.day)) uniqueMap.set(item.day, item); });
+      appState.schedules = Array.from(uniqueMap.values()).sort((a, b) => a.day - b.day);
+      
+      saveToLocalStorage();
+      renderScheduleTable();
+      showToast(`${month}月度の予定を原本通り抽出しました！`, 'success');
+    }
+
+    function loadSampleData() {
+      appState.targetYear = 2026; appState.targetMonth = 10;
+      document.getElementById('targetYear').value = 2026; document.getElementById('targetMonth').value = 10;
+      
+      const sampleDates = [
+        { day: 1, dow: '木', time: '', grades: { isAll: true, grades: ['all'] }, place: '', note: 'お休み', isPrac: false },
+        { day: 2, dow: '金', time: '17:00〜19:00', grades: { isAll: true, grades: ['all'] }, place: 'オークアリーナ', note: '男子通常練習', isPrac: true },
+        { day: 3, dow: '土', time: '9:00〜11:00', grades: { isAll: true, grades: ['all'] }, place: 'オークアリーナ', note: '男子通常練習', isPrac: true },
+        { day: 4, dow: '日', time: '', grades: { isAll: true, grades: ['all'] }, place: '', note: '広町民大会 参観日（白岳）', isPrac: false },
+        { day: 5, dow: '月', time: '17:00〜18:00', grades: { isAll: false, grades: ['4','5','6'] }, place: '白岳小学校', note: '男子通常練習', isPrac: true },
+        { day: 6, dow: '火', time: '', grades: { isAll: true, grades: ['all'] }, place: '', note: 'お休み', isPrac: false },
+        { day: 7, dow: '水', time: '17:00〜19:00', grades: { isAll: true, grades: ['all'] }, place: '白岳小学校', note: '男子通常練習', isPrac: true },
+        { day: 8, dow: '木', time: '', grades: { isAll: true, grades: ['all'] }, place: '', note: 'お休み', isPrac: false },
+        { day: 9, dow: '金', time: '17:00〜19:00', grades: { isAll: true, grades: ['all'] }, place: '白岳小学校', note: '男子通常練習', isPrac: true },
+        { day: 10, dow: '土', time: '12:30〜14:30', grades: { isAll: true, grades: ['all'] }, place: '白岳小学校', note: '男子通常練習', isPrac: true },
+        { day: 11, dow: '日', time: '', grades: { isAll: true, grades: ['all'] }, place: '', note: 'イルカ杯', isPrac: false },
+        { day: 12, dow: '月', time: '10:00〜12:00', grades: { isAll: true, grades: ['all'] }, place: '白岳小学校', note: '男子通常練習', isPrac: true },
+        { day: 13, dow: '火', time: '', grades: { isAll: true, grades: ['all'] }, place: '', note: 'お休み', isPrac: false },
+        { day: 14, dow: '水', time: '15:00〜17:00', grades: { isAll: false, grades: ['4','5','6'] }, place: 'オークアリーナ', note: '男子通常練習', isPrac: true },
+        { day: 15, dow: '木', time: '', grades: { isAll: true, grades: ['all'] }, place: '', note: 'お休み', isPrac: false },
+        { day: 16, dow: '金', time: '18:30〜20:30', grades: { isAll: false, grades: ['4','5','6'] }, place: '広南中学校', note: '男子通常練習', isPrac: true },
+        { day: 17, dow: '土', time: '18:00〜20:00', grades: { isAll: true, grades: ['all'] }, place: 'オークアリーナ', note: '男子通常練習', isPrac: true },
+        { day: 18, dow: '日', time: '', grades: { isAll: true, grades: ['all'] }, place: '', note: 'お休み', isPrac: false },
+        { day: 19, dow: '月', time: '17:00〜19:00', grades: { isAll: true, grades: ['all'] }, place: 'オークアリーナ', note: '男子通常練習', isPrac: true },
+        { day: 20, dow: '火', time: '', grades: { isAll: true, grades: ['all'] }, place: '', note: 'お休み', isPrac: false },
+        { day: 21, dow: '水', time: '', grades: { isAll: true, grades: ['all'] }, place: '', note: 'お休み', isPrac: false },
+        { day: 22, dow: '木', time: '', grades: { isAll: true, grades: ['all'] }, place: '', note: 'お休み', isPrac: false },
+        { day: 23, dow: '金', time: '18:30〜20:30', grades: { isAll: false, grades: ['4','5','6'] }, place: '広南中学校', note: '男子通常練習', isPrac: true },
+        { day: 24, dow: '土', time: '13:00〜15:00', grades: { isAll: true, grades: ['all'] }, place: 'オークアリーナ', note: '男子通常練習', isPrac: true },
+        { day: 25, dow: '日', time: '', grades: { isAll: true, grades: ['all'] }, place: '', note: 'お休み', isPrac: false },
+        { day: 26, dow: '月', time: '18:30〜20:30', grades: { isAll: false, grades: ['4','5','6'] }, place: '広南中学校', note: '男子通常練習', isPrac: true },
+        { day: 27, dow: '火', time: '', grades: { isAll: true, grades: ['all'] }, place: '', note: 'お休み', isPrac: false }
+      ];
+
+      appState.schedules = sampleDates.map(item => {
+        const ake = item.isPrac ? 1 : 0;
+        const shime = item.isPrac ? 1 : 0;
+        return {
+          id: `date-2026-10-${item.day}`, day: item.day, month: 10, year: 2026,
+          dateString: `10/${item.day}(${item.dow})`, dayOfWeek: item.dow, time: item.time,
+          targetGrades: item.grades, place: item.place, note: item.note, isPractice: item.isPrac,
+          needAke: ake > 0, akeCount: ake, needShime: shime > 0, shimeCount: shime
+        };
+      });
+
+      const defaultList = [
+        { grade: '6年生', name: '猪島隆', targetDuties: 1, wishDates: 'いつでも可能', ngDates: '', preference: 'same_day_both', pairWith: 'mem-22' },
+        { grade: '6年生', name: '小川', targetDuties: 1, wishDates: '開け閉め9,14,16,23,25日、閉めのみ4,6,11,13,27日', ngDates: '', preference: 'none', pairWith: '' },
+        { grade: '6年生', name: '渡邉秀', targetDuties: 1, wishDates: 'いつでも可能', ngDates: '', preference: 'same_day_both', pairWith: 'mem-14' },
+        { grade: '6年生', name: '石田', targetDuties: 1, wishDates: '', ngDates: '金曜日の開けと8日と16日', preference: 'none', pairWith: '' },
+        { grade: '6年生', name: 'オリベイラ', targetDuties: 1, wishDates: '水曜締め', ngDates: '', preference: 'none', pairWith: '' },
+        { grade: '6年生', name: '川本暖', targetDuties: 1, wishDates: '4,8,21,23,28日', ngDates: '', preference: 'same_day_both', pairWith: 'mem-9' },
+        { grade: '6年生', name: '三好', targetDuties: 1, wishDates: '土曜日', ngDates: '', preference: 'none', pairWith: '' },
+        { grade: '5年生', name: '高橋', targetDuties: 1, wishDates: '8,13,14,16日', ngDates: '', preference: 'none', pairWith: '' },
+        { grade: '5年生', name: '中島', targetDuties: 1, wishDates: '「13日閉め」、「8,14,21,28日」', ngDates: '', preference: 'none', pairWith: '' },
+        { grade: '5年生', name: '川本雄', targetDuties: 1, wishDates: '4,8,21,23,28日', ngDates: '', preference: 'same_day_both', pairWith: 'mem-6' },
+        { grade: '5年生', name: '采岡篤', targetDuties: 1, wishDates: '', ngDates: '6日21日28日30日', preference: 'same_day_both', pairWith: 'mem-12' },
+        { grade: '5年生', name: '采岡瞭', targetDuties: 1, wishDates: '', ngDates: '6日21日28日30日', preference: 'same_day_both', pairWith: 'mem-11' },
+        { grade: '5年生', name: '上野', targetDuties: 1, wishDates: '', ngDates: '全て不可', preference: 'none', pairWith: '' },
+        { grade: '5年生', name: '桧垣', targetDuties: 1, wishDates: '[14,21日　開け閉め可能],[20,25日　閉め可能]', ngDates: '', preference: 'none', pairWith: '' },
+        { grade: '4年生', name: '渡邉颯', targetDuties: 1, wishDates: 'いつでも可能', ngDates: '', preference: 'same_day_both', pairWith: 'mem-3' },
+        { grade: '4年生', name: '長友', targetDuties: 1, wishDates: '', ngDates: '金曜日、土曜日', preference: 'none', pairWith: '' },
+        { grade: '3年生', name: '新田', targetDuties: 1, wishDates: '20日25日27日', ngDates: '', preference: 'none', pairWith: '' },
+        { grade: '2年生', name: '堀田', targetDuties: 1, wishDates: '', ngDates: '23日', preference: 'none', pairWith: '' },
+        { grade: '2年生', name: '尾原', targetDuties: 1, wishDates: '20、27日', ngDates: '', preference: 'none', pairWith: '' },
+        { grade: '2年生', name: '住吉', targetDuties: 1, wishDates: 'いつでも可能', ngDates: '', preference: 'none', pairWith: '' },
+        { grade: '2年生', name: '岩本', targetDuties: 1, wishDates: '', ngDates: '18,25,28日', preference: 'none', pairWith: '' },
+        { grade: '2年生', name: '猪島祥', targetDuties: 1, wishDates: 'いつでも可能', ngDates: '', preference: 'same_day_both', pairWith: 'mem-1' }
+      ];
+      appState.members = defaultList.map((m, idx) => ({ ...m, id: `mem-${idx + 1}` }));
+      
+      saveToLocalStorage();
+      renderScheduleTable(); renderMemberTable();
+      showToast('2026年10月サンプルデータをセットしました', 'success');
+    }
+
+    function renderScheduleTable() {
+      const tbody = document.getElementById('scheduleTableBody');
+      if (!tbody) return;
+      document.getElementById('eventCountBadge').innerText = appState.schedules.length;
+      if (appState.schedules.length === 0) { tbody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-400">予定がありません</td></tr>`; return; }
+      
+      tbody.innerHTML = appState.schedules.map((sc, index) => {
+        const isSat = sc.dayOfWeek === '土', isSun = sc.dayOfWeek === '日' || sc.dayOfWeek === '祝';
+        const dowColor = isSat ? 'text-blue-700 bg-blue-100/80 border-blue-300' : (isSun ? 'text-rose-700 bg-rose-100/80 border-rose-300' : 'text-slate-700 bg-slate-100 border-slate-200');
+        const tg = sc.targetGrades || { isAll: true, grades: ['all'] };
+        const isAll = tg.isAll || tg.grades.includes('all');
+
+        const gradeCheckboxes = ['6','5','4','3','2','1'].map(g => {
+          const checked = !isAll && tg.grades.includes(g);
+          const disabled = isAll ? 'disabled opacity-40 cursor-not-allowed' : '';
+          return `<label class="inline-flex items-center gap-0.5 text-[11px] font-bold ${isAll ? 'text-slate-400' : 'text-slate-700'} cursor-pointer">
+                    <input type="checkbox" ${checked ? 'checked' : ''} ${disabled} onchange="toggleIndividualGrade(${index}, '${g}', this.checked)" class="rounded text-blue-600 focus:ring-0 w-3.5 h-3.5"> ${g}年
+                  </label>`;
+        }).join('');
+
+        return `
+          <tr class="hover:bg-slate-50 border-b border-slate-100 ${!sc.time ? 'bg-slate-50/70' : ''}">
+            <td class="p-2.5 font-bold"><span class="inline-flex items-center px-2 py-1 rounded text-xs border ${dowColor}">${sc.dateString}</span></td>
+            <td class="p-2.5"><input type="text" placeholder="(時間なし: 当番不要)" value="${escapeHtml(sc.time)}" onchange="updateScheduleItem(${index}, 'time', this.value)" class="text-xs p-1.5 border rounded-lg w-full ${!sc.time ? 'border-dashed text-slate-400 bg-slate-100' : 'font-bold text-slate-800'}"></td>
+            <td class="p-2.5">
+              <div class="p-1.5 bg-slate-50 border rounded-lg flex flex-wrap items-center gap-2">
+                <label class="inline-flex items-center gap-1 text-[11px] font-black text-amber-900 bg-amber-100/70 px-1.5 py-0.5 rounded cursor-pointer border border-amber-200">
+                  <input type="checkbox" ${isAll ? 'checked' : ''} onchange="toggleAllGrades(${index}, this.checked)" class="rounded text-amber-700 focus:ring-0 w-3.5 h-3.5"> 全学年
+                </label>
+                <div class="flex items-center gap-1.5 border-l border-slate-200 pl-2">${gradeCheckboxes}</div>
+              </div>
+            </td>
+            <td class="p-2.5">
+              <input type="text" value="${escapeHtml(sc.place)}" onchange="updateScheduleItem(${index}, 'place', this.value)" class="text-xs p-1.5 border rounded-lg w-full ${!sc.time ? 'border-dashed text-slate-400 bg-slate-100' : 'font-bold text-blue-900 bg-blue-50/40'}" ${!sc.time ? 'placeholder="" disabled' : 'placeholder="会場"'}>
+            </td>
+            <td class="p-2.5"><input type="text" value="${escapeHtml(sc.note)}" onchange="updateScheduleItem(${index}, 'note', this.value)" class="text-xs p-1.5 border rounded-lg w-full text-slate-600"></td>
+            <td class="p-2.5 text-center"><span class="inline-block px-2 py-0.5 rounded text-[11px] font-bold ${sc.isPractice ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}">${sc.isPractice ? '当番対象' : '当番不要'}</span></td>
+            <td class="p-2.5 text-right"><button onclick="removeScheduleItem(${index})" class="text-slate-400 hover:text-rose-600 p-1"><i class="ph ph-trash text-base"></i></button></td>
+          </tr>`;
+      }).join('');
+    }
+
+    function toggleAllGrades(index, isChecked) {
+      if (appState.schedules[index]) { appState.schedules[index].targetGrades = isChecked ? { isAll: true, grades: ['all'] } : { isAll: false, grades: [] }; saveToLocalStorage(); renderScheduleTable(); }
+    }
+    function toggleIndividualGrade(index, gradeNum, isChecked) {
+      if (!appState.schedules[index]) return;
+      const tg = appState.schedules[index].targetGrades || { isAll: true, grades: ['all'] };
+      tg.isAll = false;
+      const currentSet = new Set(tg.grades.filter(g => g !== 'all'));
+      if (isChecked) currentSet.add(gradeNum); else currentSet.delete(gradeNum);
+      if (currentSet.size === 0) { tg.isAll = true; tg.grades = ['all']; } else tg.grades = Array.from(currentSet);
+      appState.schedules[index].targetGrades = tg; saveToLocalStorage(); renderScheduleTable();
+    }
+    function updateScheduleItem(index, field, value) {
+      if (appState.schedules[index]) {
+        appState.schedules[index][field] = value;
+        if (field === 'time') {
+          const hasTime = !!value.trim(); appState.schedules[index].isPractice = hasTime;
+          if (!hasTime) { 
+            appState.schedules[index].needAke = false; 
+            appState.schedules[index].needShime = false; 
+            appState.schedules[index].place = ''; 
+          } else if (!appState.schedules[index].place) {
+            appState.schedules[index].place = '白岳小学校'; 
+          }
+        }
+        saveToLocalStorage();
+        if (field === 'time') renderScheduleTable();
+      }
+    }
+    function removeScheduleItem(index) { appState.schedules.splice(index, 1); saveToLocalStorage(); renderScheduleTable(); }
+    function addNewCustomDate() {
+      const month = appState.targetMonth || 10, year = appState.targetYear || 2026;
+      const newDay = appState.schedules.length > 0 ? (appState.schedules[appState.schedules.length - 1].day + 1) : 1;
+      const jsDate = new Date(year, month - 1, newDay);
+      const dow = ['日', '月', '火', '水', '木', '金', '土'][jsDate.getDay()];
+      appState.schedules.push({
+        id: `date-${year}-${month}-${newDay}-${Date.now()}`, day: newDay, month: month, year: year,
+        dateString: `${month}/${newDay}(${dow})`, dayOfWeek: dow, time: '9:00〜12:00', targetGrades: { isAll: true, grades: ['all'] },
+        place: '白岳小学校', note: '男子通常練習', isPractice: true, needAke: true, akeCount: 1, needShime: true, shimeCount: 1
+      });
+      saveToLocalStorage();
+      renderScheduleTable();
+    }
+
+    function renderDateSlotSettings() {
+      const container = document.getElementById('dateSlotSettingsContainer');
+      if (!container) return;
+      if (appState.schedules.length === 0) { container.innerHTML = '<p class="text-xs text-slate-400 p-4">日程が読み込まれていません</p>'; return; }
+      container.innerHTML = appState.schedules.map((sc, index) => {
+        const isAllOff = !sc.needAke && !sc.needShime;
+        const hasNoTime = !sc.time;
+        return `
+          <div class="p-3 rounded-xl border ${isAllOff ? 'border-slate-200 bg-slate-100 opacity-75' : 'border-slate-200 bg-white shadow-xs'} flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="font-bold text-xs px-2 py-1 rounded bg-slate-100 text-slate-700">${sc.dateString}</span>
+              ${sc.place ? `<span class="text-xs font-semibold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">${escapeHtml(sc.place)}</span>` : ''}
+              <span class="text-xs font-medium text-slate-700">${sc.time || '<span class="text-slate-400 italic font-normal">時間未定/なし</span>'}</span>
+              <span class="text-[11px] font-bold text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">${formatGradeLabel(sc.targetGrades)}</span>
+              <span class="text-xs text-slate-400">(${escapeHtml(sc.note)})</span>
+              ${hasNoTime ? '<span class="text-[10px] text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 font-bold">文字のみ表示(当番不要)</span>' : ''}
+            </div>
+            <div class="flex flex-wrap items-center gap-3">
+              <div class="flex items-center gap-1.5 p-1.5 rounded-lg border ${sc.needAke ? 'border-amber-300 bg-amber-50/70' : 'border-slate-200 bg-slate-50'}">
+                <label class="text-xs font-bold text-amber-900 flex items-center gap-1 cursor-pointer">
+                  <input type="checkbox" ${sc.needAke ? 'checked' : ''} onchange="toggleAkeSlot(${index}, this.checked)" class="rounded text-amber-600"> 明け
+                </label>
+                ${sc.needAke ? `<select onchange="updateDateCount(${index}, 'akeCount', this.value)" class="text-xs p-1 border rounded bg-white font-bold text-amber-900">
+                                  <option value="1" ${(sc.akeCount || 1) === 1 ? 'selected' : ''}>1人</option>
+                                  <option value="2" ${(sc.akeCount || 1) >= 2 ? 'selected' : ''}>2人 (最大)</option>
+                                </select>` : '<span class="text-[10px] text-slate-400 font-semibold px-1">不要</span>'}
+              </div>
+              <div class="flex items-center gap-1.5 p-1.5 rounded-lg border ${sc.needShime ? 'border-indigo-300 bg-indigo-50/70' : 'border-slate-200 bg-slate-50'}">
+                <label class="text-xs font-bold text-indigo-900 flex items-center gap-1 cursor-pointer">
+                  <input type="checkbox" ${sc.needShime ? 'checked' : ''} onchange="toggleShimeSlot(${index}, this.checked)" class="rounded text-indigo-600"> 締め
+                </label>
+                ${sc.needShime ? `<select onchange="updateDateCount(${index}, 'shimeCount', this.value)" class="text-xs p-1 border rounded bg-white font-bold text-indigo-900">
+                                  <option value="1" ${(sc.shimeCount || 1) === 1 ? 'selected' : ''}>1人</option>
+                                  <option value="2" ${(sc.shimeCount || 1) >= 2 ? 'selected' : ''}>2人 (最大)</option>
+                                </select>` : '<span class="text-[10px] text-slate-400 font-semibold px-1">不要</span>'}
+              </div>
+              <button onclick="turnOffBoth(${index})" class="text-[11px] px-2 py-1 rounded border border-slate-300 bg-slate-50 hover:bg-slate-200 text-slate-600">当番不要</button>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    function toggleAkeSlot(index, isChecked) { if (appState.schedules[index]) { appState.schedules[index].needAke = isChecked; if (isChecked) appState.schedules[index].akeCount = Math.max(1, appState.schedules[index].akeCount || 1); saveToLocalStorage(); renderDateSlotSettings(); } }
+    function toggleShimeSlot(index, isChecked) { if (appState.schedules[index]) { appState.schedules[index].needShime = isChecked; if (isChecked) appState.schedules[index].shimeCount = Math.max(1, appState.schedules[index].shimeCount || 1); saveToLocalStorage(); renderDateSlotSettings(); } }
+    function updateDateCount(index, field, val) { if (appState.schedules[index]) { appState.schedules[index][field] = Math.min(2, Math.max(1, parseInt(val, 10) || 1)); saveToLocalStorage(); } }
+    function turnOffBoth(index) { if (appState.schedules[index]) { appState.schedules[index].needAke = false; appState.schedules[index].needShime = false; saveToLocalStorage(); renderDateSlotSettings(); } }
+
+    function applyBatchSlotRules() {
+      const rules = {
+        '月': { ake: parseInt(document.getElementById('quick-mon-ake').value, 10), shime: parseInt(document.getElementById('quick-mon-shime').value, 10) },
+        '火': { ake: parseInt(document.getElementById('quick-tue-ake').value, 10), shime: parseInt(document.getElementById('quick-tue-shime').value, 10) },
+        '水': { ake: parseInt(document.getElementById('quick-wed-ake').value, 10), shime: parseInt(document.getElementById('quick-wed-shime').value, 10) },
+        '木': { ake: parseInt(document.getElementById('quick-thu-ake').value, 10), shime: parseInt(document.getElementById('quick-thu-shime').value, 10) },
+        '金': { ake: parseInt(document.getElementById('quick-fri-ake').value, 10), shime: parseInt(document.getElementById('quick-fri-shime').value, 10) },
+        '土': { ake: parseInt(document.getElementById('quick-sat-ake').value, 10), shime: parseInt(document.getElementById('quick-sat-shime').value, 10) },
+        '日': { ake: parseInt(document.getElementById('quick-sun-ake').value, 10), shime: parseInt(document.getElementById('quick-sun-shime').value, 10) },
+        '祝': { ake: parseInt(document.getElementById('quick-sun-ake').value, 10), shime: parseInt(document.getElementById('quick-sun-shime').value, 10) }
+      };
+
+      appState.schedules.forEach(sc => {
+        if (!sc.isPractice) { 
+            sc.needAke = false; 
+            sc.needShime = false; 
+            return; 
+        }
+        const rule = rules[sc.dayOfWeek];
+        if (rule) {
+            sc.needAke = rule.ake > 0;
+            sc.akeCount = Math.min(2, rule.ake);
+            sc.needShime = rule.shime > 0;
+            sc.shimeCount = Math.min(2, rule.shime);
+        }
+      });
+      saveToLocalStorage();
+      renderDateSlotSettings(); 
+      showToast('曜日別のルールをすべての練習日に一括反映しました', 'success');
+    }
+
+    function clearAllMembers() { appState.members = []; saveToLocalStorage(); renderMemberTable(); showToast('名簿を全消去しました', 'info'); }
+
+    function importMembersFromExcel(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+          let gradeCol = 0, nameCol = 1, countCol = -1, wishCol = -1, ngCol = -1, brotherCol = -1, startRow = 0;
+
+          for (let r = 0; r < Math.min(rows.length, 5); r++) {
+            if (!rows[r]) continue;
+            let foundHeader = false;
+            for (let c = 0; c < rows[r].length; c++) {
+              const val = String(rows[r][c]).trim();
+              if (val.includes('学年')) { gradeCol = c; foundHeader = true; }
+              if (val.includes('名') || val.includes('氏名') || val.includes('保護者')) { nameCol = c; foundHeader = true; }
+              if (val.includes('回数')) { countCol = c; foundHeader = true; }
+              if (val.includes('希望') || val.includes('入りたい')) { wishCol = c; foundHeader = true; }
+              if (val.includes('NG') || val.includes('不可')) { ngCol = c; foundHeader = true; }
+              if (val.includes('兄弟')) { brotherCol = c; foundHeader = true; }
+            }
+            if (foundHeader) { startRow = r + 1; break; }
+          }
+          const newMembers = [];
+          for (let r = startRow; r < rows.length; r++) {
+            const row = rows[r];
+            if (!row || row.length === 0) continue;
+            let gradeVal = String(row[gradeCol] || '').trim();
+            let nameVal = String(row[nameCol] || '').trim();
+            if (!nameVal && gradeVal && !/^[1-6１-６]/.test(gradeVal)) { nameVal = gradeVal; gradeVal = ''; }
+            if (!nameVal || nameVal === '氏名' || nameVal.includes('保護者')) continue;
+            let targetDuties = 1; 
+            if (countCol !== -1 && row[countCol]) {
+              const parsed = parseInt(String(row[countCol]).replace(/[^0-9]/g, ''), 10);
+              if (parsed >= 1) targetDuties = Math.min(3, Math.max(1, parsed));
+            }
+            const brotherName = brotherCol !== -1 ? String(row[brotherCol] || '').trim() : '';
+            newMembers.push({ 
+                id: `mem-${Date.now()}-${r}`, 
+                grade: gradeVal, 
+                name: nameVal, 
+                targetDuties: targetDuties, 
+                wishDates: wishCol !== -1 ? String(row[wishCol] || '').trim() : '', 
+                ngDates: ngCol !== -1 ? String(row[ngCol] || '').trim() : '', 
+                preference: 'none', 
+                pairWith: '',
+                _tempBrotherName: brotherName
+            });
+          }
+          
+          newMembers.forEach(m => {
+            if (m._tempBrotherName) {
+                const brother = newMembers.find(other => other.name === m._tempBrotherName);
+                if (brother) {
+                    m.pairWith = brother.id;
+                    m.preference = 'same_day_both';
+                }
+            }
+            delete m._tempBrotherName;
+          });
+
+          if (newMembers.length > 0) { appState.members = newMembers; saveToLocalStorage(); renderMemberTable(); showToast(`名簿をリセットし、${newMembers.length}名新規登録しました`, 'success'); }
+        } catch (err) { showToast('Excelの読み込みに失敗しました', 'error'); }
+      };
+      reader.readAsArrayBuffer(file); event.target.value = '';
+    }
+
+    function openRosterTextModal() { document.getElementById('textImportModal').classList.remove('hidden'); }
+    function closeRosterTextModal() { document.getElementById('textImportModal').classList.add('hidden'); }
+    function applyRosterBulkText() {
+      const text = document.getElementById('rosterBulkInput').value.trim();
+      if (!text) return showToast('テキストを入力してください', 'error');
+      const lines = text.split('\n');
+      const newMembers = [];
+      lines.forEach((line, idx) => {
+        const parts = line.trim().split(/[,、\t]+/).map(s => s.trim());
+        if (parts.length === 0 || !parts[0]) return;
+        let grade = '', name = '', targetCount = 1, wish = '', ng = '';
+        if (parts.length === 1) { name = parts[0]; } else {
+          grade = parts[0]; name = parts[1];
+          if (parts[2]) targetCount = Math.min(3, Math.max(1, parseInt(parts[2].replace(/[^0-9]/g, ''), 10) || 1));
+          if (parts[3]) wish = parts[3];
+          if (parts[4]) ng = parts[4];
+        }
+        if (name) newMembers.push({ id: `mem-text-${Date.now()}-${idx}`, grade, name, targetDuties: targetCount, wishDates: wish, ngDates: ng, preference: 'none', pairWith: '' });
+      });
+      if (newMembers.length > 0) { appState.members = newMembers; saveToLocalStorage(); renderMemberTable(); closeRosterTextModal(); showToast(`テキストから名簿をリセット更新しました`, 'success'); }
+    }
+    function addNewMember() { appState.members.push({ id: `mem-${Date.now()}`, grade: '6年生', name: `保護者${appState.members.length + 1}`, targetDuties: 1, wishDates: '', ngDates: '', preference: 'none', pairWith: '' }); saveToLocalStorage(); renderMemberTable(); }
+
+    function renderMemberTable() {
+      const tbody = document.getElementById('memberTableBody');
+      if (!tbody) return;
+      if (appState.members.length === 0) { tbody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-slate-400">名簿が登録されていません</td></tr>`; return; }
+
+      tbody.innerHTML = appState.members.map((m, index) => {
+        const pairOptions = appState.members.filter(o => o.id !== m.id).map(o => `<option value="${o.id}" ${m.pairWith === o.id ? 'selected' : ''}>${escapeHtml(o.grade || '')} ${escapeHtml(o.name)}</option>`).join('');
+        return `
+          <tr class="hover:bg-slate-50 border-b border-slate-100">
+            <td class="p-2"><input type="text" value="${escapeHtml(m.grade || '')}" onchange="updateMemberField(${index}, 'grade', this.value)" class="w-full p-1 text-xs border rounded-lg text-center font-bold text-slate-700 bg-slate-50"></td>
+            <td class="p-2"><input type="text" value="${escapeHtml(m.name)}" onchange="updateMemberField(${index}, 'name', this.value)" class="w-full p-1.5 text-xs border rounded-lg font-bold text-slate-800"></td>
+            <td class="p-2 text-center">
+              <select onchange="updateMemberField(${index}, 'targetDuties', parseInt(this.value, 10))" class="text-xs p-1 border rounded-lg font-bold text-blue-700 bg-blue-50/50 w-full">
+                <option value="1" ${m.targetDuties === 1 ? 'selected' : ''}>1回 (基本)</option>
+                <option value="2" ${m.targetDuties === 2 ? 'selected' : ''}>2回</option>
+                <option value="3" ${m.targetDuties === 3 ? 'selected' : ''}>3回 (最大)</option>
+              </select>
+            </td>
+            <td class="p-2"><input type="text" value="${escapeHtml(m.wishDates)}" placeholder="例: 10/2, 10/3" onchange="updateMemberField(${index}, 'wishDates', this.value)" class="w-full p-1 text-xs border rounded-lg text-emerald-800 bg-emerald-50/40"></td>
+            <td class="p-2"><input type="text" value="${escapeHtml(m.ngDates)}" placeholder="例: 金曜, 10/10" onchange="updateMemberField(${index}, 'ngDates', this.value)" class="w-full p-1 text-xs border rounded-lg text-rose-800 bg-rose-50/40"></td>
+            <td class="p-2">
+              <select onchange="updateMemberField(${index}, 'preference', this.value)" class="w-full text-[11px] p-1 border rounded-lg bg-white">
+                <option value="none" ${m.preference === 'none' ? 'selected' : ''}>制約なし</option>
+                <option value="same_day_both" ${m.preference === 'same_day_both' ? 'selected' : ''}>同日明け・締めセット(兄弟)</option>
+                <option value="saturday_only" ${m.preference === 'saturday_only' ? 'selected' : ''}>土曜日のみ</option>
+                <option value="sunday_only" ${m.preference === 'sunday_only' ? 'selected' : ''}>日曜日のみ</option>
+                <option value="ake_only" ${m.preference === 'ake_only' ? 'selected' : ''}>明け当番のみ</option>
+                <option value="shime_only" ${m.preference === 'shime_only' ? 'selected' : ''}>締め当番のみ</option>
+              </select>
+            </td>
+            <td class="p-2"><select onchange="updateMemberField(${index}, 'pairWith', this.value)" class="w-full text-[11px] p-1 border rounded-lg bg-blue-50 text-blue-800 font-medium"><option value="">指定なし</option>${pairOptions}</select></td>
+            <td class="p-2 text-right"><button onclick="removeMember(${index})" class="text-slate-400 hover:text-rose-600 p-1"><i class="ph ph-trash text-base"></i></button></td>
+          </tr>`;
+      }).join('');
+    }
+    function updateMemberField(index, field, value) { if (appState.members[index]) { appState.members[index][field] = value; saveToLocalStorage(); } }
+    function removeMember(index) { appState.members.splice(index, 1); saveToLocalStorage(); renderMemberTable(); }
+
+    function getGradeNumber(m) {
+      if (!m || !m.grade) return 0;
+      const match = m.grade.match(/([1-6１-６])/);
+      return match ? parseInt(match[1], 10) : 0;
+    }
+
+    // AI自然言語解析エンジン（フリーフォーマットの条件解読）
+    function checkDateStatus(member, sc, slotType) {
+      const getContext = (text, dayStr, dowStr) => {
+          let t = text.replace(/\s+/g, '').replace(/[（\(\[\「]/g, '').replace(/[）\)\]\」]/g, '');
+          let regex = new RegExp(`(^|[^0-9])(${dayStr})(日|[^0-9]|$)`, 'g');
+          let match;
+          let matched = false;
+          let hasAke = false, hasShime = false;
+          
+          while ((match = regex.exec(t)) !== null) {
+              matched = true;
+              let index = match.index;
+              let prefix = t.substring(0, index);
+              let lastAkeIdx = Math.max(prefix.lastIndexOf('開け'), prefix.lastIndexOf('明け'));
+              let lastShimeIdx = Math.max(prefix.lastIndexOf('閉め'), prefix.lastIndexOf('締め'));
+              
+              let suffix = t.substring(index + match[0].length);
+              let nextSep = suffix.search(/[、,。と\[\]\n]/);
+              if (nextSep === -1) nextSep = suffix.length;
+              let immediateSuffix = suffix.substring(0, nextSep);
+              let suffAke = immediateSuffix.includes('開け') || immediateSuffix.includes('明け');
+              let suffShime = immediateSuffix.includes('閉め') || immediateSuffix.includes('締め');
+              
+              if (suffAke) lastAkeIdx = index + 1;
+              if (suffShime) lastShimeIdx = index + 1;
+              
+              if (lastAkeIdx > -1 && lastShimeIdx > -1 && Math.abs(lastAkeIdx - lastShimeIdx) < 8) {
+                  hasAke = true; hasShime = true;
+              } else if (lastAkeIdx > lastShimeIdx) {
+                  hasAke = true;
+              } else if (lastShimeIdx > lastAkeIdx) {
+                  hasShime = true;
+              }
+          }
+          
+          if (!matched && t.includes(`${dowStr}曜`)) {
+              matched = true;
+              let dowIdx = t.indexOf(`${dowStr}曜`);
+              let prefix = t.substring(0, dowIdx);
+              let lastAkeIdx = Math.max(prefix.lastIndexOf('開け'), prefix.lastIndexOf('明け'));
+              let lastShimeIdx = Math.max(prefix.lastIndexOf('閉め'), prefix.lastIndexOf('締め'));
+              
+              let suffix = t.substring(dowIdx + 2);
+              let nextSep = suffix.search(/[、,。と\[\]\n]/);
+              if (nextSep === -1) nextSep = suffix.length;
+              let immediateSuffix = suffix.substring(0, nextSep);
+              let suffAke = immediateSuffix.includes('開け') || immediateSuffix.includes('明け');
+              let suffShime = immediateSuffix.includes('閉め') || immediateSuffix.includes('締め');
+              
+              if (suffAke) lastAkeIdx = dowIdx + 1;
+              if (suffShime) lastShimeIdx = dowIdx + 1;
+              
+              if (lastAkeIdx > -1 && lastShimeIdx > -1 && Math.abs(lastAkeIdx - lastShimeIdx) < 8) {
+                  hasAke = true; hasShime = true;
+              } else if (lastAkeIdx > lastShimeIdx) {
+                  hasAke = true;
+              } else if (lastShimeIdx > lastAkeIdx) {
+                  hasShime = true;
+              }
+          }
+
+          if (matched) {
+              if ((hasAke && hasShime) || (!hasAke && !hasShime)) { 
+                  return { matched: true, isNg: false, isWish: true };
+              }
+              if (hasAke && !hasShime) {
+                  if (slotType === 'ake') return { matched: true, isNg: false, isWish: true };
+                  else return { matched: true, isNg: true, isWish: false }; 
+              }
+              if (!hasAke && hasShime) {
+                  if (slotType === 'shime') return { matched: true, isNg: false, isWish: true };
+                  else return { matched: true, isNg: true, isWish: false };
+              }
+          }
+          return { matched: false, isNg: false, isWish: false };
+      };
+
+      let isNg = false, isWish = false, isExplicitNotWish = false;
+
+      if (member.ngDates) {
+          let text = String(member.ngDates);
+          if (text.includes('全て不可') || text.includes('すべて不可')) return { isNg: true, isWish: false, isExplicitNotWish: false };
+          if (!text.includes('いつでも') && !text.includes('全て可') && !text.includes('すべて可')) {
+               let res = getContext(text, sc.day, sc.dayOfWeek);
+               if (res.matched) {
+                   if (res.isWish) isNg = true;
+                   if (res.isNg) isNg = false; 
+               }
+          }
+      }
+      if (isNg) return { isNg, isWish, isExplicitNotWish };
+
+      if (member.wishDates) {
+          let text = String(member.wishDates);
+          if (text.includes('いつでも') || text.includes('全て可') || text.includes('すべて可')) {
+              isWish = false; isExplicitNotWish = false;
+          } else {
+               isExplicitNotWish = true; 
+               let res = getContext(text, sc.day, sc.dayOfWeek);
+               if (res.matched) {
+                   isExplicitNotWish = false;
+                   isWish = res.isWish;
+                   isNg = res.isNg;
+               }
+          }
+      }
+      return { isNg, isWish, isExplicitNotWish };
+    }
+
+    function runAutoAssignment() {
+      if (appState.members.length === 0) return showToast('名簿がありません', 'error');
+      const activeSchedules = appState.schedules.filter(sc => sc.isPractice && (sc.needAke || sc.needShime));
+      if (activeSchedules.length === 0) return showToast('当番が必要な日がありません', 'error');
+
+      appState.roster = {};
+      appState.schedules.forEach(sc => { appState.roster[sc.id] = { ake: [], shime: [] }; });
+
+      const dutyCount = {};
+      const assignedOnDate = {};
+      appState.members.forEach(m => { dutyCount[m.id] = 0; });
+      appState.schedules.forEach(sc => { assignedOnDate[sc.id] = new Set(); });
+
+      const slotList = [];
+      activeSchedules.forEach(sc => {
+        if (sc.needAke) { for (let i = 0; i < (sc.akeCount || 1); i++) slotList.push({ schedule: sc, type: 'ake', index: i }); }
+        if (sc.needShime) { for (let i = 0; i < (sc.shimeCount || 1); i++) slotList.push({ schedule: sc, type: 'shime', index: i }); }
+      });
+
+      const evaluateFit = (member, slot, phase) => {
+        const count = dutyCount[member.id] || 0;
+        
+        if (count >= 3) return -99999;
+        if (assignedOnDate[slot.schedule.id].has(member.id)) return -99999; 
+        
+        const { isNg, isWish, isExplicitNotWish } = checkDateStatus(member, slot.schedule, slot.type);
+        if (isNg) return -99999; 
+
+        // 4段階フェーズ制御
+        if (phase === 1) { 
+            if (count >= 1) return -99999;
+            if (isExplicitNotWish) return -99999; 
+        }
+        if (phase === 2) { 
+            if (count >= 1) return -99999;
+        }
+        if (phase === 3) { 
+            if (count >= (member.targetDuties || 1)) return -99999;
+            if (isExplicitNotWish) return -99999;
+        }
+        if (phase === 4) { 
+            if (count >= 3) return -99999;
+            if (isExplicitNotWish) return -99999;
+        }
+        
+        let score = 0;
+        
+        if (count === 0) score += 100000;
+        else if (count < (member.targetDuties || 1)) score += 50000;
+        
+        const gNum = getGradeNumber(member);
+        score += (gNum * 100);
+
+        const tg = slot.schedule.targetGrades || { isAll: true, grades: ['all'] };
+        const isTargetGrade = tg.isAll || tg.grades.includes('all') || (gNum > 0 && tg.grades.includes(String(gNum)));
+        if (!isTargetGrade) return -99999; 
+
+        if (isWish) score += 20000;
+
+        // 兄弟リンクの採点（無理な連行をストップ）
+        if (member.preference === 'same_day_both' && slot.type === 'ake') {
+            const pairId = member.pairWith;
+            const pairMember = appState.members.find(m => m.id === pairId);
+            let canAssignPair = false;
+            if (pairMember) {
+                const pGrade = getGradeNumber(pairMember);
+                const pIsTarget = tg.isAll || tg.grades.includes('all') || (pGrade > 0 && tg.grades.includes(String(pGrade)));
+                const pStatus = checkDateStatus(pairMember, slot.schedule, 'shime');
+                const pAlreadyAssigned = assignedOnDate[slot.schedule.id].has(pairId);
+                
+                if (pIsTarget && !pStatus.isNg && !pAlreadyAssigned && slot.schedule.needShime) {
+                    const pCount = dutyCount[pairId] || 0;
+                    if (pCount < 3) {
+                        canAssignPair = true;
+                    }
+                }
+            }
+            
+            if (canAssignPair) {
+                score += 10000; 
+            } else {
+                score -= 5000; // 兄弟が入らない場合はペナルティ（別の日を探させるため。ただし0回回避の場合はここに入る）
+            }
+        }
+        
+        if (member.preference === 'saturday_only' && slot.schedule.dayOfWeek !== '土') return -99999;
+        if (member.preference === 'sunday_only' && slot.schedule.dayOfWeek !== '日' && slot.schedule.dayOfWeek !== '祝') return -99999;
+        if (member.preference === 'ake_only' && slot.type !== 'ake') return -99999;
+        if (member.preference === 'shime_only' && slot.type !== 'shime') return -99999;
+
+        score += Math.random() * 5;
+        return score;
+      };
+
+      for (let phase = 1; phase <= 4; phase++) {
+        for (const slot of slotList) {
+          const existing = appState.roster[slot.schedule.id][slot.type];
+          if (existing[slot.index]) continue;
+
+          let bestMember = null, highestScore = -90000;
+          for (const member of appState.members) {
+            const score = evaluateFit(member, slot, phase);
+            if (score > highestScore) {
+               highestScore = score;
+               bestMember = member;
+            }
+          }
+
+          if (bestMember && highestScore > -50000) {
+             existing[slot.index] = bestMember.id;
+             assignedOnDate[slot.schedule.id].add(bestMember.id);
+             dutyCount[bestMember.id]++;
+
+             if (bestMember.preference === 'same_day_both' && slot.type === 'ake') {
+                const pairId = bestMember.pairWith;
+                if (pairId) {
+                    const shimeExisting = appState.roster[slot.schedule.id]['shime'];
+                    const limit = slot.schedule.needShime ? (slot.schedule.shimeCount || 1) : 0; 
+                    for (let i = 0; i < limit; i++) {
+                       if (!shimeExisting[i] && (dutyCount[pairId] || 0) < 3) {
+                          const pairMember = appState.members.find(m => m.id === pairId);
+                          if(pairMember) {
+                              const tg = slot.schedule.targetGrades || { isAll: true, grades: ['all'] };
+                              const pGrade = getGradeNumber(pairMember);
+                              const pIsTarget = tg.isAll || tg.grades.includes('all') || (pGrade > 0 && tg.grades.includes(String(pGrade)));
+                              const pStatus = checkDateStatus(pairMember, slot.schedule, 'shime');
+                              const pAlreadyAssigned = assignedOnDate[slot.schedule.id].has(pairId);
+                              
+                              if(pIsTarget && !pStatus.isNg && !pAlreadyAssigned) {
+                                  shimeExisting[i] = pairId;
+                                  dutyCount[pairId] = (dutyCount[pairId] || 0) + 1;
+                                  assignedOnDate[slot.schedule.id].add(pairId);
+                                  break;
+                              }
+                          }
+                       }
+                    }
+                }
+             }
+          }
+        }
+      }
+      
+      saveToLocalStorage();
+      updateStats(); renderRosterTable(); 
+      showToast('希望日・ルールに基づき全スロットを割り当てました！', 'success');
+    }
+
+    function clearAllAssignments() {
+      appState.roster = {};
+      appState.schedules.forEach(sc => { appState.roster[sc.id] = { ake: [], shime: [] }; });
+      saveToLocalStorage();
+      updateStats(); renderRosterTable(); showToast('割当をリセットしました', 'info');
+    }
+
+    function updateStats() {
+      let totalSlots = 0, assignedSlots = 0;
+      appState.schedules.forEach(sc => {
+        if (!sc.isPractice) return;
+        if (sc.needAke) totalSlots += (sc.akeCount || 1);
+        if (sc.needShime) totalSlots += (sc.shimeCount || 1);
+        const r = appState.roster[sc.id];
+        if (r) { assignedSlots += r.ake.filter(Boolean).length + r.shime.filter(Boolean).length; }
+      });
+
+      document.getElementById('stat-total-slots').innerText = `${totalSlots} 枠`;
+      document.getElementById('stat-assigned-slots').innerText = `${assignedSlots} / ${totalSlots} 枠`;
+      document.getElementById('stat-member-count').innerText = `${appState.members.length} 名`;
+
+      const dutyCount = {};
+      appState.members.forEach(m => { dutyCount[m.id] = 0; });
+      appState.schedules.forEach(sc => {
+        const r = appState.roster[sc.id];
+        if (r) {
+          r.ake.filter(Boolean).forEach(id => { dutyCount[id] = (dutyCount[id] || 0) + 1; });
+          r.shime.filter(Boolean).forEach(id => { dutyCount[id] = (dutyCount[id] || 0) + 1; });
+        }
+      });
+
+      const zeroDutyMembers = appState.members.filter(m => (dutyCount[m.id] || 0) === 0);
+      const minCheckEl = document.getElementById('stat-min-duty-check');
+      if (zeroDutyMembers.length === 0 && appState.members.length > 0) {
+        minCheckEl.innerHTML = '<span class="text-emerald-600 font-bold">全員1回以上達成！</span>';
+      } else if (appState.members.length > 0) {
+        minCheckEl.innerHTML = `<span class="text-amber-600 font-bold">未割当: ${zeroDutyMembers.length}名</span>`;
+      } else {
+        minCheckEl.innerHTML = '集計中';
+      }
+
+      const quotaContainer = document.getElementById('memberQuotaList');
+      if (quotaContainer) {
+        quotaContainer.innerHTML = appState.members.map(m => {
+          const count = dutyCount[m.id] || 0;
+          let badgeClass = count === 0 ? 'bg-rose-50 text-rose-800 border-rose-200' : count === 1 ? 'bg-blue-50 text-blue-800 border-blue-200' : count === 2 ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-fuchsia-50 text-fuchsia-800 border-fuchsia-200';
+          
+          let reasonText = '';
+          if (count === 0) {
+             const canEnterDays = appState.schedules.filter(sc => {
+               if (!sc.isPractice) return false;
+               const tg = sc.targetGrades || { isAll: true, grades: ['all'] };
+               const gNum = getGradeNumber(m);
+               const isTarget = tg.isAll || tg.grades.includes('all') || (gNum > 0 && tg.grades.includes(String(gNum)));
+               const { isNg } = checkDateStatus(m, sc, 'ake'); // rough check
+               return isTarget && !isNg;
+             });
+             if (canEnterDays.length === 0) reasonText = '<br><span class="text-[9px] text-rose-600 font-normal">入れる日がありません(制約過多)</span>';
+          }
+          return `<span class="inline-flex flex-col px-2.5 py-1 rounded-lg border text-xs font-bold ${badgeClass} shadow-sm"><span class="flex items-center gap-1.5"><span class="text-[10px] opacity-70">${escapeHtml(m.grade || '')}</span><span>${escapeHtml(m.name)}</span><span class="text-[11px] font-mono">${count}回 (目標${m.targetDuties}回)</span></span>${reasonText}</span>`;
+        }).join('');
+      }
+    }
+
+    function renderRosterTable() {
+      const tbody = document.getElementById('rosterTableBody');
+      if (!tbody) return;
+      if (appState.schedules.length === 0) { tbody.innerHTML = '<tr><td colspan="7" class="p-6 text-center text-slate-400">予定がありません</td></tr>'; return; }
+
+      tbody.innerHTML = appState.schedules.map(sc => {
+        const isSat = sc.dayOfWeek === '土', isSun = sc.dayOfWeek === '日' || sc.dayOfWeek === '祝';
+        const dowColor = isSat ? 'text-blue-700 bg-blue-100/80 border-blue-300' : (isSun ? 'text-rose-700 bg-rose-100/80 border-rose-300' : 'text-slate-700 bg-slate-100 border-slate-200');
+        const dateRoster = appState.roster[sc.id] || { ake: [], shime: [] };
+
+        const akeBadges = [];
+        if (!sc.needAke || sc.akeCount === 0) { akeBadges.push('<span class="text-xs text-slate-400 font-medium">当番不要</span>'); } 
+        else {
+          for (let i = 0; i < 2; i++) {
+            const mId = dateRoster.ake[i];
+            const member = mId ? appState.members.find(m => m.id === mId) : null;
+            if (member) akeBadges.push(`<button onclick="openSlotEditModal('${sc.id}', 'ake', ${i})" class="badge-ake px-2.5 py-1 rounded-lg text-xs font-bold inline-flex items-center gap-1 shadow-xs hover:ring-2 hover:ring-amber-400 transition"><i class="ph ph-user"></i> ${escapeHtml(member.name)}</button>`);
+            else akeBadges.push(`<button onclick="openSlotEditModal('${sc.id}', 'ake', ${i})" class="border border-dashed border-amber-400 bg-amber-50/50 hover:bg-amber-100 text-amber-700 px-2 py-1 rounded-lg text-[11px] font-medium inline-flex items-center gap-1"><i class="ph ph-plus"></i> 空き (手動追加)</button>`);
+          }
+        }
+
+        const shimeBadges = [];
+        if (!sc.needShime || sc.shimeCount === 0) { shimeBadges.push('<span class="text-xs text-slate-400 font-medium">当番不要</span>'); } 
+        else {
+          for (let i = 0; i < 2; i++) {
+            const mId = dateRoster.shime[i];
+            const member = mId ? appState.members.find(m => m.id === mId) : null;
+            if (member) shimeBadges.push(`<button onclick="openSlotEditModal('${sc.id}', 'shime', ${i})" class="badge-shime px-2.5 py-1 rounded-lg text-xs font-bold inline-flex items-center gap-1 shadow-xs hover:ring-2 hover:ring-indigo-400 transition"><i class="ph ph-user"></i> ${escapeHtml(member.name)}</button>`);
+            else shimeBadges.push(`<button onclick="openSlotEditModal('${sc.id}', 'shime', ${i})" class="border border-dashed border-indigo-400 bg-indigo-50/50 hover:bg-indigo-100 text-indigo-700 px-2 py-1 rounded-lg text-[11px] font-medium inline-flex items-center gap-1"><i class="ph ph-plus"></i> 空き (手動追加)</button>`);
+          }
+        }
+
+        return `
+          <tr class="hover:bg-slate-50 transition border-b border-slate-100 ${!sc.time ? 'bg-slate-50/70' : ''}">
+            <td class="p-3 font-bold"><span class="px-2 py-0.5 rounded border text-xs ${dowColor}">${sc.dateString}</span></td>
+            <td class="p-3 text-xs font-medium text-slate-700">${sc.time || '<span class="text-slate-400 italic">時間なし</span>'}</td>
+            <td class="p-3 text-xs font-bold text-amber-900">${formatGradeLabel(sc.targetGrades)}</td>
+            <td class="p-3 text-xs font-bold text-blue-900">${escapeHtml(sc.place)}</td>
+            <td class="p-3 bg-amber-50/20 border-l border-amber-100"><div class="flex flex-wrap gap-1.5 items-center">${akeBadges.join('')}</div></td>
+            <td class="p-3 bg-indigo-50/20 border-l border-indigo-100"><div class="flex flex-wrap gap-1.5 items-center">${shimeBadges.join('')}</div></td>
+            <td class="p-3 text-xs text-slate-500 border-l border-slate-100">${escapeHtml(sc.note || '')}</td>
+          </tr>`;
+      }).join('');
+    }
+
+    function openSlotEditModal(scheduleId, slotType, slotIndex) {
+      const sc = appState.schedules.find(s => s.id === scheduleId);
+      if (!sc) return;
+      appState.editingSlot = { scheduleId, slotType, slotIndex };
+      document.getElementById('slotEditDetails').innerHTML = `<span class="font-bold">${sc.dateString} (${sc.time || '時間未定'})</span><br>会場: ${escapeHtml(sc.place)} / 区分: <strong>${slotType === 'ake' ? '明け当番' : '締め当番'} (${slotIndex + 1}枠目)</strong>`;
+      const selectEl = document.getElementById('slotMemberSelect');
+      selectEl.innerHTML = '<option value="">(空き枠にする)</option>' + appState.members.map(m => `<option value="${m.id}">${escapeHtml(m.grade || '')} ${escapeHtml(m.name)}</option>`).join('');
+      const curList = (appState.roster[scheduleId] && appState.roster[scheduleId][slotType]) || [];
+      selectEl.value = curList[slotIndex] || '';
+      document.getElementById('slotEditModal').classList.remove('hidden');
+    }
+    function closeSlotModal() { document.getElementById('slotEditModal').classList.add('hidden'); appState.editingSlot = null; }
+    function saveSlotAssignment() {
+      if (!appState.editingSlot) return;
+      const { scheduleId, slotType, slotIndex } = appState.editingSlot;
+      const selVal = document.getElementById('slotMemberSelect').value;
+      if (!appState.roster[scheduleId]) appState.roster[scheduleId] = { ake: [], shime: [] };
+      const list = appState.roster[scheduleId][slotType];
+      if (selVal) list[slotIndex] = selVal; else list.splice(slotIndex, 1);
+      saveToLocalStorage();
+      closeSlotModal(); updateStats(); renderRosterTable();
+    }
+    function removeCurrentSlotAssignment() {
+      if (!appState.editingSlot) return;
+      const { scheduleId, slotType, slotIndex } = appState.editingSlot;
+      if (appState.roster[scheduleId] && appState.roster[scheduleId][slotType]) appState.roster[scheduleId][slotType].splice(slotIndex, 1);
+      saveToLocalStorage();
+      closeSlotModal(); updateStats(); renderRosterTable();
+    }
+
+    function saveToLocalStorage() {
+      try {
+        const dataToSave = { targetYear: appState.targetYear, targetMonth: appState.targetMonth, schedules: appState.schedules, members: appState.members, roster: appState.roster };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+      } catch (e) {}
+    }
+
+    function loadFromLocalStorage() {
+      try {
+        const savedData = localStorage.getItem(STORAGE_KEY);
+        if (savedData) {
+          const parsed = JSON.parse(savedData);
+          appState.targetYear = parsed.targetYear || 2026;
+          appState.targetMonth = parsed.targetMonth || 10;
+          appState.schedules = parsed.schedules || [];
+          appState.members = parsed.members || [];
+          appState.roster = parsed.roster || {};
+        }
+      } catch (e) {}
+    }
+
+    function formatDutyText(sc, dateRoster, allMembers) {
+      if (!sc.needAke && !sc.needShime) return '';
+      const akeIds = (dateRoster.ake || []).filter(Boolean);
+      const shimeIds = (dateRoster.shime || []).filter(Boolean);
+      if (akeIds.length === 0 && shimeIds.length === 0) return '';
+
+      const getBase = (id) => {
+        const m = allMembers.find(x => x.id === id);
+        if (!m) return '';
+        let name = m.name.trim();
+        if (m.pairWith) {
+          const pair = allMembers.find(x => x.id === m.pairWith);
+          if (pair) {
+            let pairName = pair.name.trim();
+            let common = '';
+            for (let i = 0; i < Math.min(name.length, pairName.length); i++) {
+              if (name[i] === pairName[i]) common += name[i];
+              else break;
+            }
+            if (common.length >= 1) return common; 
+          }
+        }
+        if (name.includes(' ')) return name.split(' ')[0];
+        if (name.includes('　')) return name.split('　')[0];
+        return name;
+      };
+
+      const akeNames = akeIds.map(getBase).filter(Boolean);
+      const shimeNames = shimeIds.map(getBase).filter(Boolean);
+
+      const sortedAke = [...akeNames].sort().join('・');
+      const sortedShime = [...shimeNames].sort().join('・');
+
+      if (akeNames.length > 0 && shimeNames.length > 0 && sortedAke === sortedShime) {
+        return akeNames.join('・'); 
+      }
+      
+      let akeStr = akeNames.join('・');
+      let shimeStr = shimeNames.join('・');
+      
+      if (sc.needAke && sc.needShime) {
+         return `${akeStr || '未定'}/${shimeStr || '未定'}`;
+      }
+      if (sc.needAke) return akeStr;
+      if (sc.needShime) return shimeStr;
+      
+      return '';
+    }
+
+    function exportToExcel() {
+      if (appState.schedules.length === 0) return showToast('出力する予定がありません', 'error');
+      const exportRows = [[`${appState.targetYear}年${appState.targetMonth}月度 ミニバス【男子】保護者当番表`, '', '', '', '', '', ''],
+                          ['日付', '曜', '練習時間', '対象学年', '練習会場', '当番', '予定・備考']];
+      appState.schedules.forEach(sc => {
+        const dutyText = formatDutyText(sc, appState.roster[sc.id] || {}, appState.members);
+        exportRows.push([`${sc.month}/${sc.day}`, sc.dayOfWeek, sc.time || '', formatGradeLabel(sc.targetGrades), sc.place, dutyText, sc.note || '']);
+      });
+      const wb = XLSX.utils.book_new();
+      const wsRoster = XLSX.utils.aoa_to_sheet(exportRows);
+      wsRoster['!cols'] = [{ wch: 10 }, { wch: 6 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 30 }, { wch: 30 }];
+      XLSX.utils.book_append_sheet(wb, wsRoster, `${appState.targetMonth}月当番表`);
+      XLSX.writeFile(wb, `${appState.targetYear}年${appState.targetMonth}月度_男子当番表.xlsx`);
+      showToast('Excelを出力しました', 'success');
+    }
+
+    async function exportToPDF() {
+      if (appState.schedules.length === 0) return showToast('出力する予定がありません', 'error');
+      showToast('PDFを作成しています...', 'info');
+      try {
+        const printDiv = document.createElement('div');
+        printDiv.style.position = 'absolute'; printDiv.style.left = '-9999px'; printDiv.style.top = '0';
+        printDiv.style.width = '1000px'; printDiv.style.backgroundColor = '#ffffff'; printDiv.style.padding = '20px';
+        
+        let rowsHtml = appState.schedules.map(sc => {
+          const isSat = sc.dayOfWeek === '土', isSun = sc.dayOfWeek === '日' || sc.dayOfWeek === '祝';
+          let dowColor = isSat ? 'color: #1d4ed8;' : (isSun ? 'color: #be123c;' : 'color: #334155;');
+          let rowBg = !sc.time ? 'background-color: #f8fafc;' : 'background-color: #ffffff;';
+          const dutyText = formatDutyText(sc, appState.roster[sc.id] || {}, appState.members);
+          return `
+            <tr style="${rowBg}">
+              <td style="padding: 8px; border: 1px solid #cbd5e1; text-align: center; font-weight: bold; ${dowColor}">${sc.month}/${sc.day}</td>
+              <td style="padding: 8px; border: 1px solid #cbd5e1; text-align: center; font-weight: bold; ${dowColor}">${sc.dayOfWeek}</td>
+              <td style="padding: 8px; border: 1px solid #cbd5e1; text-align: center; font-size: 14px;">${sc.time || ''}</td>
+              <td style="padding: 8px; border: 1px solid #cbd5e1; text-align: center; font-size: 12px; font-weight: bold; color: #78350f;">${formatGradeLabel(sc.targetGrades)}</td>
+              <td style="padding: 8px; border: 1px solid #cbd5e1; text-align: center; font-weight: bold; color: #1e3a8a;">${escapeHtml(sc.place)}</td>
+              <td style="padding: 8px; border: 1px solid #cbd5e1; text-align: center; font-weight: bold; font-size: 14px; background-color: #fef9c3;">${dutyText}</td>
+              <td style="padding: 8px; border: 1px solid #cbd5e1; font-size: 12px; color: #475569;">${escapeHtml(sc.note || '')}</td>
+            </tr>`;
+        }).join('');
+
+        printDiv.innerHTML = `
+          <h2 style="font-size: 20px; font-weight: bold; text-align: center; margin-bottom: 16px; font-family: sans-serif;">${appState.targetYear}年${appState.targetMonth}月度 男子保護者当番表</h2>
+          <table style="width: 100%; border-collapse: collapse; font-family: sans-serif;">
+            <thead>
+              <tr style="background-color: #f1f5f9;">
+                <th style="padding: 8px; border: 1px solid #cbd5e1; width: 60px;">日付</th>
+                <th style="padding: 8px; border: 1px solid #cbd5e1; width: 40px;">曜</th>
+                <th style="padding: 8px; border: 1px solid #cbd5e1; width: 140px;">練習時間</th>
+                <th style="padding: 8px; border: 1px solid #cbd5e1; width: 120px;">対象学年</th>
+                <th style="padding: 8px; border: 1px solid #cbd5e1; width: 140px;">練習会場</th>
+                <th style="padding: 8px; border: 1px solid #cbd5e1; width: 220px; background-color: #fef08a;">当番</th>
+                <th style="padding: 8px; border: 1px solid #cbd5e1;">予定・備考</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>`;
+        document.body.appendChild(printDiv);
+        const canvas = await html2canvas(printDiv, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+        document.body.removeChild(printDiv);
+        const imgData = canvas.toDataURL('image/jpeg', 1.0);
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF('l', 'mm', 'a4');
+        const pdfWidth = pdf.internal.pageSize.getWidth(), pdfHeight = pdf.internal.pageSize.getHeight();
+        const ratio = canvas.height / canvas.width;
+        const margin = 10, availableWidth = pdfWidth - margin * 2, availableHeight = pdfHeight - margin * 2 - 10;
+        let targetWidth = availableWidth, targetHeight = targetWidth * ratio;
+        if (targetHeight > availableHeight) { targetHeight = availableHeight; targetWidth = targetHeight / ratio; }
+        const xOffset = margin + (availableWidth - targetWidth) / 2, yOffset = margin + 5;
+        
+        pdf.addImage(imgData, 'JPEG', xOffset, yOffset, targetWidth, targetHeight);
+        pdf.save(`${appState.targetYear}年${appState.targetMonth}月度_男子当番表.pdf`);
+        showToast('PDFを出力しました！', 'success');
+      } catch (error) { showToast('PDF出力に失敗しました', 'error'); }
+    }
+    
+    function escapeHtml(str) { return str ? String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;') : ''; }
+  </script>
+</body>
+</html>
