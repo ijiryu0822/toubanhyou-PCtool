@@ -1137,83 +1137,119 @@
         if (sc.needShime) { for (let i = 0; i < (sc.shimeCount || 1); i++) slotList.push({ schedule: sc, type: 'shime', index: i }); }
       });
 
+      // 基本的な配置可否チェック（学年・NG日・個別制約・同日重複）
+      const canBasicAssign = (member, sc, slotType, ignoreSameDayId = null) => {
+        if (assignedOnDate[sc.id].has(member.id) && member.id !== ignoreSameDayId) return false;
+        const gNum = getGradeNumber(member);
+        const tg = sc.targetGrades || { isAll: true, grades: ['all'] };
+        const isTargetGrade = tg.isAll || tg.grades.includes('all') || (gNum > 0 && tg.grades.includes(String(gNum)));
+        if (!isTargetGrade) return false;
+
+        const { isNg } = checkDateStatus(member, sc, slotType);
+        if (isNg) return false;
+
+        if (member.preference === 'saturday_only' && sc.dayOfWeek !== '土') return false;
+        if (member.preference === 'sunday_only' && sc.dayOfWeek !== '日' && sc.dayOfWeek !== '祝') return false;
+        if (member.preference === 'ake_only' && slotType !== 'ake') return false;
+        if (member.preference === 'shime_only' && slotType !== 'shime') return false;
+
+        return true;
+      };
+
+      // 各メンバーが入れるスロット総数を事前計算（入れる枠が少ない人を優先して0回を防ぐ）
+      const eligibleSlotCount = {};
+      appState.members.forEach(m => {
+        let cnt = 0;
+        slotList.forEach(slot => {
+          if (canBasicAssign(m, slot.schedule, slot.type)) cnt++;
+        });
+        eligibleSlotCount[m.id] = cnt;
+      });
+
+      // フェーズごとの最大割当回数（Phase 1・2は必ず1回まで）
+      const getPhaseMaxCount = (member, phase) => {
+        if (phase === 1 || phase === 2) return 1;
+        if (phase === 3) return Math.max(1, member.targetDuties || 1);
+        return 3;
+      };
+
       const evaluateFit = (member, slot, phase) => {
         const count = dutyCount[member.id] || 0;
+        const maxCount = getPhaseMaxCount(member, phase);
         
-        if (count >= 3) return -99999;
-        if (assignedOnDate[slot.schedule.id].has(member.id)) return -99999; 
-        
-        const { isNg, isWish, isExplicitNotWish } = checkDateStatus(member, slot.schedule, slot.type);
-        if (isNg) return -99999; 
+        if (count >= maxCount) return -99999;
+        if (!canBasicAssign(member, slot.schedule, slot.type)) return -99999;
 
-        // 4段階フェーズ制御
-        if (phase === 1) { 
-            if (count >= 1) return -99999;
-            if (isExplicitNotWish) return -99999; 
-        }
-        if (phase === 2) { 
-            if (count >= 1) return -99999;
-        }
-        if (phase === 3) { 
-            if (count >= (member.targetDuties || 1)) return -99999;
-            if (isExplicitNotWish) return -99999;
-        }
-        if (phase === 4) { 
-            if (count >= 3) return -99999;
-            if (isExplicitNotWish) return -99999;
+        const { isWish, isExplicitNotWish } = checkDateStatus(member, slot.schedule, slot.type);
+
+        // Phase 1, 3, 4 は希望日のみを許可（Phase 2は0回救済、Phase 5は最終空き枠埋め）
+        if ((phase === 1 || phase === 3 || phase === 4) && isExplicitNotWish) {
+          return -99999;
         }
         
         let score = 0;
         
-        if (count === 0) score += 100000;
-        else if (count < (member.targetDuties || 1)) score += 50000;
+        if (count === 0) {
+          score += 100000;
+          // 入れる枠が少ない人（低学年やNG日が多い人）を優先
+          const elig = eligibleSlotCount[member.id] || 1;
+          score += Math.max(0, 5000 - elig * 100);
+        } else if (count < (member.targetDuties || 1)) {
+          score += 50000;
+        } else {
+          // 2回目・3回目は回数が少ない人を優先
+          score += (3 - count) * 10000;
+        }
         
         const gNum = getGradeNumber(member);
-        score += (gNum * 100);
-
-        const tg = slot.schedule.targetGrades || { isAll: true, grades: ['all'] };
-        const isTargetGrade = tg.isAll || tg.grades.includes('all') || (gNum > 0 && tg.grades.includes(String(gNum)));
-        if (!isTargetGrade) return -99999; 
+        if (count >= 1) {
+          score += (gNum * 200);
+        }
 
         if (isWish) score += 20000;
 
-        // 兄弟リンクの採点（無理な連行をストップ）
+        // 兄弟リンクの採点（現在のフェーズでペア相手も上限未満の場合のみ加点）
         if (member.preference === 'same_day_both' && slot.type === 'ake') {
             const pairId = member.pairWith;
             const pairMember = appState.members.find(m => m.id === pairId);
             let canAssignPair = false;
-            if (pairMember) {
-                const pGrade = getGradeNumber(pairMember);
-                const pIsTarget = tg.isAll || tg.grades.includes('all') || (pGrade > 0 && tg.grades.includes(String(pGrade)));
+            if (pairMember && slot.schedule.needShime) {
+                const pairMax = getPhaseMaxCount(pairMember, phase);
+                const pCount = dutyCount[pairId] || 0;
+                const shimeExisting = appState.roster[slot.schedule.id]['shime'];
+                const shimeLimit = slot.schedule.shimeCount || 1;
+                let hasEmptyShime = false;
+                for (let i = 0; i < shimeLimit; i++) {
+                  if (!shimeExisting[i]) { hasEmptyShime = true; break; }
+                }
                 const pStatus = checkDateStatus(pairMember, slot.schedule, 'shime');
-                const pAlreadyAssigned = assignedOnDate[slot.schedule.id].has(pairId);
+                const pWishOk = !((phase === 1 || phase === 3 || phase === 4) && pStatus.isExplicitNotWish);
                 
-                if (pIsTarget && !pStatus.isNg && !pAlreadyAssigned && slot.schedule.needShime) {
-                    const pCount = dutyCount[pairId] || 0;
-                    if (pCount < 3) {
-                        canAssignPair = true;
-                    }
+                if (hasEmptyShime && pCount < pairMax && pWishOk && canBasicAssign(pairMember, slot.schedule, 'shime')) {
+                    canAssignPair = true;
                 }
             }
             
             if (canAssignPair) {
                 score += 10000; 
             } else {
-                score -= 5000; // 兄弟が入らない場合はペナルティ（別の日を探させるため。ただし0回回避の場合はここに入る）
+                score -= 2000;
             }
         }
-        
-        if (member.preference === 'saturday_only' && slot.schedule.dayOfWeek !== '土') return -99999;
-        if (member.preference === 'sunday_only' && slot.schedule.dayOfWeek !== '日' && slot.schedule.dayOfWeek !== '祝') return -99999;
-        if (member.preference === 'ake_only' && slot.type !== 'ake') return -99999;
-        if (member.preference === 'shime_only' && slot.type !== 'shime') return -99999;
 
         score += Math.random() * 5;
         return score;
       };
 
-      for (let phase = 1; phase <= 4; phase++) {
-        for (const slot of slotList) {
+      // Phase 1〜5の順に割り当て（対象学年が限定されている枠を先に処理）
+      for (let phase = 1; phase <= 5; phase++) {
+        const orderedSlots = [...slotList].sort((a, b) => {
+          const aAll = (a.schedule.targetGrades?.isAll || a.schedule.targetGrades?.grades?.includes('all')) ? 1 : 0;
+          const bAll = (b.schedule.targetGrades?.isAll || b.schedule.targetGrades?.grades?.includes('all')) ? 1 : 0;
+          return aAll - bAll;
+        });
+
+        for (const slot of orderedSlots) {
           const existing = appState.roster[slot.schedule.id][slot.type];
           if (existing[slot.index]) continue;
 
@@ -1231,32 +1267,99 @@
              assignedOnDate[slot.schedule.id].add(bestMember.id);
              dutyCount[bestMember.id]++;
 
+             // 兄弟セットの同時配置（現在のフェーズの回数上限を厳守し、0回の人がいる間の2回目割当を防止）
              if (bestMember.preference === 'same_day_both' && slot.type === 'ake') {
                 const pairId = bestMember.pairWith;
                 if (pairId) {
+                    const pairMember = appState.members.find(m => m.id === pairId);
                     const shimeExisting = appState.roster[slot.schedule.id]['shime'];
                     const limit = slot.schedule.needShime ? (slot.schedule.shimeCount || 1) : 0; 
-                    for (let i = 0; i < limit; i++) {
-                       if (!shimeExisting[i] && (dutyCount[pairId] || 0) < 3) {
-                          const pairMember = appState.members.find(m => m.id === pairId);
-                          if(pairMember) {
-                              const tg = slot.schedule.targetGrades || { isAll: true, grades: ['all'] };
-                              const pGrade = getGradeNumber(pairMember);
-                              const pIsTarget = tg.isAll || tg.grades.includes('all') || (pGrade > 0 && tg.grades.includes(String(pGrade)));
-                              const pStatus = checkDateStatus(pairMember, slot.schedule, 'shime');
-                              const pAlreadyAssigned = assignedOnDate[slot.schedule.id].has(pairId);
-                              
-                              if(pIsTarget && !pStatus.isNg && !pAlreadyAssigned) {
-                                  shimeExisting[i] = pairId;
-                                  dutyCount[pairId] = (dutyCount[pairId] || 0) + 1;
-                                  assignedOnDate[slot.schedule.id].add(pairId);
-                                  break;
-                              }
-                          }
-                       }
+                    if (pairMember) {
+                        const pairMax = getPhaseMaxCount(pairMember, phase);
+                        const pStatus = checkDateStatus(pairMember, slot.schedule, 'shime');
+                        const pWishOk = !((phase === 1 || phase === 3 || phase === 4) && pStatus.isExplicitNotWish);
+                        for (let i = 0; i < limit; i++) {
+                           if (!shimeExisting[i] && (dutyCount[pairId] || 0) < pairMax && pWishOk && canBasicAssign(pairMember, slot.schedule, 'shime')) {
+                              shimeExisting[i] = pairId;
+                              dutyCount[pairId] = (dutyCount[pairId] || 0) + 1;
+                              assignedOnDate[slot.schedule.id].add(pairId);
+                              break;
+                           }
+                        }
                     }
                 }
              }
+          }
+        }
+      }
+
+      // 最終救済チェック：0回の人がまだいるのに2回以上入っている人がいる場合、交代・玉突きで0回の人を優先
+      let improved = true;
+      let guardLoop = 0;
+      while (improved && guardLoop < 50) {
+        improved = false;
+        guardLoop++;
+        const zeroMembers = appState.members.filter(m => (dutyCount[m.id] || 0) === 0);
+        if (zeroMembers.length === 0) break;
+
+        for (const zMem of zeroMembers) {
+          let rescued = false;
+
+          // 1. 直接交代：2回以上入っている人の枠に0回の人(zMem)が入れるかチェック（希望日一致を優先）
+          for (const strictWish of [true, false]) {
+            if (rescued) break;
+            for (const slot of slotList) {
+              const curId = appState.roster[slot.schedule.id][slot.type][slot.index];
+              if (!curId || (dutyCount[curId] || 0) < 2) continue;
+              if (!canBasicAssign(zMem, slot.schedule, slot.type)) continue;
+              const { isExplicitNotWish } = checkDateStatus(zMem, slot.schedule, slot.type);
+              if (strictWish && isExplicitNotWish) continue;
+
+              appState.roster[slot.schedule.id][slot.type][slot.index] = zMem.id;
+              assignedOnDate[slot.schedule.id].delete(curId);
+              assignedOnDate[slot.schedule.id].add(zMem.id);
+              dutyCount[curId]--;
+              dutyCount[zMem.id]++;
+              rescued = true;
+              improved = true;
+              break;
+            }
+          }
+
+          // 2. 玉突き交代：0回の人(zMem)が1回の人(m1)の枠に入り、m1が2回以上の人(m2)の枠に入る
+          if (!rescued) {
+            for (const slot1 of slotList) {
+              if (rescued) break;
+              const id1 = appState.roster[slot1.schedule.id][slot1.type][slot1.index];
+              if (!id1 || (dutyCount[id1] || 0) !== 1) continue;
+              if (!canBasicAssign(zMem, slot1.schedule, slot1.type)) continue;
+              const m1 = appState.members.find(m => m.id === id1);
+              if (!m1) continue;
+
+              for (const slot2 of slotList) {
+                const id2 = appState.roster[slot2.schedule.id][slot2.type][slot2.index];
+                if (!id2 || (dutyCount[id2] || 0) < 2) continue;
+                if (slot1.schedule.id === slot2.schedule.id && slot1.type === slot2.type && slot1.index === slot2.index) continue;
+                const ignoreId = (slot1.schedule.id === slot2.schedule.id) ? m1.id : null;
+                if (!canBasicAssign(m1, slot2.schedule, slot2.type, ignoreId)) continue;
+                const { isExplicitNotWish: m1NotWish } = checkDateStatus(m1, slot2.schedule, slot2.type);
+                if (m1NotWish) continue;
+
+                appState.roster[slot1.schedule.id][slot1.type][slot1.index] = zMem.id;
+                assignedOnDate[slot1.schedule.id].delete(id1);
+                assignedOnDate[slot1.schedule.id].add(zMem.id);
+
+                appState.roster[slot2.schedule.id][slot2.type][slot2.index] = id1;
+                assignedOnDate[slot2.schedule.id].delete(id2);
+                assignedOnDate[slot2.schedule.id].add(id1);
+
+                dutyCount[id2]--;
+                dutyCount[zMem.id]++;
+                rescued = true;
+                improved = true;
+                break;
+              }
+            }
           }
         }
       }
